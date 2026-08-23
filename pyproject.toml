@@ -1,0 +1,17 @@
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+extend-exclude = ["backend/venv"]
+
+[tool.ruff.lint]
+# E/F: pycodestyle+pyflakes · I: import order · B: bugbear · UP: pyupgrade
+select = ["E", "F", "I", "B", "UP"]
+ignore = [
+  # Long messages/reasons in policy strings and docs read better unwrapped.
+  "E501",
+  # `Depends(get_db)` in defaults is THE FastAPI dependency-injection idiom.
+  "B008",
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]

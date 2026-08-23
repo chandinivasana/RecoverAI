@@ -1,11 +1,10 @@
 import json
 import random
-import uuid
 from datetime import datetime, timedelta
+
 from sqlalchemy.orm import Session
-from ..models import (
-    DBPayment, DBPaymentEvent, DBPolicyConfig, PaymentStatus, FailureCategory
-)
+
+from ..models import DBPayment, DBPaymentEvent, DBPolicyConfig, FailureCategory, PaymentStatus
 from .outcome_model import assign_ground_truth
 from .utils import merchant_for_amount
 

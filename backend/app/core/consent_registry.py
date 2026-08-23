@@ -1,5 +1,6 @@
-from typing import Dict, Any
 from datetime import datetime
+from typing import Any
+
 
 class DPDPConsentRegistry:
     """
@@ -19,10 +20,10 @@ class DPDPConsentRegistry:
     """
 
     # In-memory / fast-lookup registry for customer consent status
-    _REGISTRY: Dict[str, Dict[str, Any]] = {}
+    _REGISTRY: dict[str, dict[str, Any]] = {}
 
     @classmethod
-    def register_consent(cls, customer_id: str, channel: str = "all", granted: bool = True, source: str = "checkout_optin") -> Dict[str, Any]:
+    def register_consent(cls, customer_id: str, channel: str = "all", granted: bool = True, source: str = "checkout_optin") -> dict[str, Any]:
         record = {
             "customer_id": customer_id,
             "channel": channel,
@@ -36,7 +37,7 @@ class DPDPConsentRegistry:
         return record
 
     @classmethod
-    def check_consent(cls, customer_id: str, channel: str = "whatsapp") -> Dict[str, Any]:
+    def check_consent(cls, customer_id: str, channel: str = "whatsapp") -> dict[str, Any]:
         """
         Verify if customer has valid DPDP-compliant communication consent.
         Returns allowed=True (opt-in on file), allowed=False (opt-out on file),

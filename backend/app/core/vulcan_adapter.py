@@ -1,9 +1,9 @@
-import random
-from typing import Dict, Any
+from typing import Any
+
 
 class PaymentIntelligenceProvider:
     """Base interface for payment intelligence providers."""
-    def get_intelligence(self, payment_data: Dict[str, Any], customer_context: Dict[str, Any]) -> Dict[str, Any]:
+    def get_intelligence(self, payment_data: dict[str, Any], customer_context: dict[str, Any]) -> dict[str, Any]:
         raise NotImplementedError
 
 class BaselineProvider(PaymentIntelligenceProvider):
@@ -11,19 +11,16 @@ class BaselineProvider(PaymentIntelligenceProvider):
     Standard deterministic payment intelligence provider.
     Uses heuristic rules based on failure error code and basic customer history.
     """
-    def get_intelligence(self, payment_data: Dict[str, Any], customer_context: Dict[str, Any]) -> Dict[str, Any]:
-        failure_reason = str(payment_data.get("failure_reason", "")).lower()
-        error_code = str(payment_data.get("error_code", "")).upper()
+    def get_intelligence(self, payment_data: dict[str, Any], customer_context: dict[str, Any]) -> dict[str, Any]:
         past_successful = customer_context.get("past_successful_payments", 0)
         past_failed = customer_context.get("past_failed_payments", 0)
-        
+
         # Base probability calculation
         total_txns = past_successful + past_failed
         cust_ratio = (past_successful / total_txns) if total_txns > 0 else 0.5
-        
+
         confidence = 0.65
-        estimated_success_prob = max(0.1, min(0.9, cust_ratio * 0.8))
-        
+
         return {
             "provider": "baseline",
             "gateway_health_score": 0.85,
@@ -40,9 +37,8 @@ class VulcanAdapter(PaymentIntelligenceProvider):
     Enhances failure diagnosis with smart bank-uptime telemetry, routing-health metrics,
     UPI handle health, and dynamic recovery window estimation.
     """
-    def get_intelligence(self, payment_data: Dict[str, Any], customer_context: Dict[str, Any]) -> Dict[str, Any]:
+    def get_intelligence(self, payment_data: dict[str, Any], customer_context: dict[str, Any]) -> dict[str, Any]:
         method = payment_data.get("payment_method", "upi").lower()
-        amount = payment_data.get("amount", 0.0)
         error_code = str(payment_data.get("error_code", "")).upper()
         
         # Vulcan smart telemetry simulation

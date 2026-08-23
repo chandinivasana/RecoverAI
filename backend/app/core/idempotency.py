@@ -1,11 +1,13 @@
 from datetime import datetime
-from typing import Tuple, Optional
+
 from sqlalchemy.orm import Session
+
 from ..models import DBPaymentEvent
+
 
 class IdempotencyManager:
     @staticmethod
-    def check_and_register(db: Session, event_id: str, payment_id: str, event_type: str, payload_json: str) -> Tuple[bool, Optional[DBPaymentEvent]]:
+    def check_and_register(db: Session, event_id: str, payment_id: str, event_type: str, payload_json: str) -> tuple[bool, DBPaymentEvent | None]:
         """
         Returns (is_duplicate: bool, event_record)
         If event_id has already been processed, returns (True, existing_event).

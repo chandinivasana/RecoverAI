@@ -1,8 +1,10 @@
 import re
-from typing import Dict, Any, Tuple
-from ..models import RecoveryAction, RiskLevel, DBPolicyConfig
+from typing import Any
+
 from ..core.consent_registry import DPDPConsentRegistry
 from ..core.rate_limiter import AcquirerRateLimitManager
+from ..models import RecoveryAction, RiskLevel
+
 
 class PolicyEvaluationResult:
     def __init__(self, allowed: bool, policy_rule: str, reason: str, requires_escalation: bool = False, force_action: str = None):
@@ -23,7 +25,7 @@ class PolicyRules:
     ]
 
     @staticmethod
-    def check_adversarial_injection(payment_data: Dict[str, Any]) -> Tuple[bool, str]:
+    def check_adversarial_injection(payment_data: dict[str, Any]) -> tuple[bool, str]:
         reason_text = f"{payment_data.get('failure_reason', '')} {str(payment_data.get('metadata', ''))}".lower()
         for pattern in PolicyRules.ADVERSARIAL_PATTERNS:
             if re.search(pattern, reason_text, re.IGNORECASE):
@@ -31,31 +33,31 @@ class PolicyRules:
         return False, ""
 
     @staticmethod
-    def check_amount_limit(amount: float, max_autonomous_amount: float) -> Tuple[bool, str]:
+    def check_amount_limit(amount: float, max_autonomous_amount: float) -> tuple[bool, str]:
         if amount > max_autonomous_amount:
             return False, f"Autonomous Limit Exceeded: Transaction amount ₹{amount:,.2f} exceeds configured autonomous recovery limit of ₹{max_autonomous_amount:,.2f}."
         return True, f"Transaction amount ₹{amount:,.2f} is within autonomous limit ₹{max_autonomous_amount:,.2f}."
 
     @staticmethod
-    def check_retry_limit(current_retries: int, max_retries: int) -> Tuple[bool, str]:
+    def check_retry_limit(current_retries: int, max_retries: int) -> tuple[bool, str]:
         if current_retries >= max_retries:
             return False, f"Retry Quota Exhausted: Current retry count ({current_retries}) reached max autonomous limit ({max_retries})."
         return True, f"Retry count ({current_retries}) is below threshold ({max_retries})."
 
     @staticmethod
-    def check_risk_level(risk_level: str, require_human_high_risk: bool) -> Tuple[bool, str]:
+    def check_risk_level(risk_level: str, require_human_high_risk: bool) -> tuple[bool, str]:
         if require_human_high_risk and risk_level in [RiskLevel.HIGH.value, RiskLevel.CRITICAL.value]:
             return False, f"Risk Policy: High transaction risk level '{risk_level}' mandates human operator sign-off."
         return True, "Risk level within autonomous tolerances."
 
     @staticmethod
-    def check_unknown_failure(failure_type: str, escalate_unknown: bool) -> Tuple[bool, str]:
+    def check_unknown_failure(failure_type: str, escalate_unknown: bool) -> tuple[bool, str]:
         if escalate_unknown and failure_type == "UNKNOWN":
             return False, "Safety Policy: Unclassified/Ambiguous failure reason requires human investigation."
         return True, "Failure type is recognized."
 
     @staticmethod
-    def check_customer_consent(action: str, customer_id: str, customer_context: Dict[str, Any], require_consent: bool) -> Tuple[bool, str]:
+    def check_customer_consent(action: str, customer_id: str, customer_context: dict[str, Any], require_consent: bool) -> tuple[bool, str]:
         if action not in [RecoveryAction.PAYMENT_LINK.value, RecoveryAction.ALTERNATE_METHOD.value]:
             return True, "No customer-facing communication involved in this action."
         if not require_consent:
@@ -81,5 +83,5 @@ class PolicyRules:
         return True, "Customer DPDP communication consent verified."
 
     @staticmethod
-    def check_acquirer_rate_limits(payment_method: str, error_code: str = "", dry_run: bool = False) -> Tuple[bool, Dict[str, Any]]:
+    def check_acquirer_rate_limits(payment_method: str, error_code: str = "", dry_run: bool = False) -> tuple[bool, dict[str, Any]]:
         return AcquirerRateLimitManager.check_acquirer_capacity(payment_method, error_code, dry_run=dry_run)

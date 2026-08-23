@@ -2,10 +2,10 @@
 these were previously copy-pasted per router)."""
 import ast
 import json
-from typing import Any, Dict
+from typing import Any
 
 
-def safe_json_loads(val: Any) -> Dict[str, Any]:
+def safe_json_loads(val: Any) -> dict[str, Any]:
     if not val:
         return {}
     if isinstance(val, dict):

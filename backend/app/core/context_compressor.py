@@ -1,6 +1,7 @@
 import json
 import re
-from typing import Dict, Any, Tuple
+from typing import Any
+
 
 class HeadroomContextCompressor:
     """
@@ -10,7 +11,7 @@ class HeadroomContextCompressor:
     """
 
     @staticmethod
-    def compress_json(data: Dict[str, Any]) -> str:
+    def compress_json(data: dict[str, Any]) -> str:
         """
         Compresses JSON structures by stripping redundant nulls, white space,
         and condensing standard keys into compact representations.
@@ -38,7 +39,7 @@ class HeadroomContextCompressor:
         return condensed[:200]
 
     @classmethod
-    def prepare_agent_context(cls, payment_data: Dict[str, Any], customer_context: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    def prepare_agent_context(cls, payment_data: dict[str, Any], customer_context: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
         """
         Compresses payment and customer context, returning compressed payload
         along with token efficiency metrics.

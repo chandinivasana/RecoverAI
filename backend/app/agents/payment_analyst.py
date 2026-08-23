@@ -1,7 +1,8 @@
-import re
-from typing import Dict, Any, Tuple
-from ..models import FailureCategory, RiskLevel
+from typing import Any
+
 from ..core.vulcan_adapter import get_intelligence_provider
+from ..models import FailureCategory, RiskLevel
+
 
 class PaymentAnalyst:
     """
@@ -36,7 +37,7 @@ class PaymentAnalyst:
     }
 
     @staticmethod
-    def analyze(payment_data: Dict[str, Any], customer_context: Dict[str, Any], vulcan_enabled: bool = True) -> Dict[str, Any]:
+    def analyze(payment_data: dict[str, Any], customer_context: dict[str, Any], vulcan_enabled: bool = True) -> dict[str, Any]:
         reason_raw = str(payment_data.get("failure_reason", "")).strip()
         error_code = str(payment_data.get("error_code", "")).upper()
         amount = float(payment_data.get("amount", 0.0))

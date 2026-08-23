@@ -1,21 +1,20 @@
 import json
 import uuid
 from datetime import datetime
-from typing import Dict, Any, Optional, List
-from fastapi import APIRouter, Depends, HTTPException, Body, Query
+from typing import Any
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from ..database import get_db
-from ..models import (
-    DBPayment, DBRecoveryDecision, DBPolicyDecision, DBPolicyConfig,
-    PaymentStatus, RecoveryAction
-)
+
+from ..agents.critic import RecoveryCritic
+from ..agents.payment_analyst import PaymentAnalyst
+from ..agents.recovery_executor import RecoveryExecutor
+from ..agents.recovery_planner import RecoveryPlanner
 from ..core.audit import append_audit
 from ..core.config_store import get_active_policy_config
 from ..core.llm_reasoner import get_reasoner
-from ..agents.payment_analyst import PaymentAnalyst
-from ..agents.recovery_planner import RecoveryPlanner
-from ..agents.critic import RecoveryCritic
-from ..agents.recovery_executor import RecoveryExecutor
+from ..database import get_db
+from ..models import DBPayment, DBPolicyDecision, DBRecoveryDecision, PaymentStatus, RecoveryAction
 from ..policy.engine import PolicyEngine
 
 router = APIRouter(prefix="/api/recovery", tags=["Recovery"])
@@ -25,7 +24,7 @@ router = APIRouter(prefix="/api/recovery", tags=["Recovery"])
 CRITIC_ALLOWED_OVERRIDES = (RecoveryAction.HUMAN_REVIEW.value, RecoveryAction.STOP.value)
 
 
-def _apply_critic_override(db: Session, payment_id: str, plan: Dict[str, Any], critic: Dict[str, Any]) -> bool:
+def _apply_critic_override(db: Session, payment_id: str, plan: dict[str, Any], critic: dict[str, Any]) -> bool:
     """If the Critic disagrees and proposes a de-escalation, the pipeline adopts
     it BEFORE policy evaluation and records an audit event. Returns True if applied."""
     if critic.get("verdict") != "DISAGREE":
@@ -47,7 +46,7 @@ def _apply_critic_override(db: Session, payment_id: str, plan: Dict[str, Any], c
     return True
 
 
-def _audit_llm_degradation(db: Session, payment_id: str, source: str, result: Dict[str, Any]) -> None:
+def _audit_llm_degradation(db: Session, payment_id: str, source: str, result: dict[str, Any]) -> None:
     """When an LLM-backed result fell back to deterministic reasoning, record it —
     the graceful-failure path is itself an auditable event."""
     info = result.get("llm", result)
@@ -59,8 +58,8 @@ def _audit_llm_degradation(db: Session, payment_id: str, source: str, result: Di
         })
 
 
-def _attach_llm_enrichment(db: Session, payment_id: str, analysis: Dict[str, Any],
-                           pay_data: Dict[str, Any], cust_ctx: Dict[str, Any]) -> None:
+def _attach_llm_enrichment(db: Session, payment_id: str, analysis: dict[str, Any],
+                           pay_data: dict[str, Any], cust_ctx: dict[str, Any]) -> None:
     """LLM narrative enrichment of the analyst output. Advisory only: it never
     mutates the deterministic classification or risk level."""
     reasoner = get_reasoner()
@@ -288,7 +287,7 @@ def process_full_recovery_pipeline(payment_id: str, db: Session = Depends(get_db
 @router.post("/batch-process")
 def batch_process_recoveries(
     limit: int = Query(25, ge=1, le=100),
-    dataset_split: Optional[str] = "dev",
+    dataset_split: str | None = "dev",
     db: Session = Depends(get_db)
 ):
     """

@@ -10,9 +10,9 @@ shim, by API startup (SEED_ON_STARTUP), and by tests. Keep it that way.
 """
 import sys
 
-from app.database import engine, Base, SessionLocal
 from app.core.schema_guard import ensure_columns
 from app.core.seed_data import seed_database
+from app.database import Base, SessionLocal, engine
 
 
 def main() -> None:

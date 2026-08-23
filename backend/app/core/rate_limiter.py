@@ -1,6 +1,8 @@
 import time
-from typing import Dict, Any, Tuple
+from typing import Any
+
 from .redis_client import RedisManager
+
 
 class AcquirerRateLimitManager:
     """
@@ -31,7 +33,7 @@ class AcquirerRateLimitManager:
         return acquirer
 
     @classmethod
-    def check_acquirer_capacity(cls, payment_method: str, error_code: str = "", dry_run: bool = False) -> Tuple[bool, Dict[str, Any]]:
+    def check_acquirer_capacity(cls, payment_method: str, error_code: str = "", dry_run: bool = False) -> tuple[bool, dict[str, Any]]:
         """
         Check if the target acquirer bank has capacity or if circuit breaker is open.
 
@@ -96,7 +98,7 @@ class AcquirerRateLimitManager:
         RedisManager.set(f"circuit:acquirer:{acquirer}:is_open", "false", ex=1)
 
     @classmethod
-    def register_acquirer_failure(cls, payment_method: str, error_code: str = "") -> Dict[str, Any]:
+    def register_acquirer_failure(cls, payment_method: str, error_code: str = "") -> dict[str, Any]:
         """
         Records one failed execution against the target acquirer. When failures
         within the 60s window reach ERROR_TRIP_THRESHOLD, the circuit breaker

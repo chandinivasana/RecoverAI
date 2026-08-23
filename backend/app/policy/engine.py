@@ -1,6 +1,8 @@
-from typing import Dict, Any
-from .rules import PolicyRules, PolicyEvaluationResult
-from ..models import RecoveryAction, DBPolicyConfig
+from typing import Any
+
+from ..models import DBPolicyConfig, RecoveryAction
+from .rules import PolicyEvaluationResult, PolicyRules
+
 
 class PolicyEngine:
     """
@@ -18,8 +20,8 @@ class PolicyEngine:
     @staticmethod
     def evaluate(
         recommended_action: str,
-        payment_data: Dict[str, Any],
-        customer_context: Dict[str, Any],
+        payment_data: dict[str, Any],
+        customer_context: dict[str, Any],
         config: DBPolicyConfig,
         dry_run: bool = False,
         human_approved: bool = False

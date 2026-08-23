@@ -17,10 +17,11 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+
+from app.api.recovery import process_full_recovery_pipeline
+from app.core.audit import GENESIS_HASH, append_audit, verify_chain
 from app.database import Base
 from app.models import DBAuditEvent, DBPayment, DBPolicyConfig, PaymentStatus
-from app.core.audit import GENESIS_HASH, append_audit, verify_chain
-from app.api.recovery import process_full_recovery_pipeline
 
 
 @pytest.fixture

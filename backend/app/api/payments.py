@@ -1,17 +1,23 @@
 import json
 from datetime import datetime
-from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from ..database import get_db
-from ..models import (
-    DBPayment, DBPaymentEvent, DBAuditEvent, DBRecoveryDecision, DBPolicyDecision,
-    DBRecoveryExecution, DBHumanReview, PaymentEventIngestRequest,
-    PaymentStatus
-)
+
 from ..core.audit import append_audit
 from ..core.idempotency import IdempotencyManager
 from ..core.utils import merchant_for_amount, safe_json_loads
+from ..database import get_db
+from ..models import (
+    DBAuditEvent,
+    DBHumanReview,
+    DBPayment,
+    DBPaymentEvent,
+    DBRecoveryDecision,
+    DBRecoveryExecution,
+    PaymentEventIngestRequest,
+    PaymentStatus,
+)
 
 router = APIRouter(prefix="/api/payments", tags=["Payments"])
 
@@ -95,13 +101,13 @@ def ingest_payment_event(req: PaymentEventIngestRequest, db: Session = Depends(g
 
 @router.get("")
 def list_payments(
-    status: Optional[str] = None,
-    dataset_split: Optional[str] = None,
-    payment_method: Optional[str] = None,
-    merchant_id: Optional[str] = None,
-    min_amount: Optional[float] = None,
-    max_amount: Optional[float] = None,
-    search: Optional[str] = None,
+    status: str | None = None,
+    dataset_split: str | None = None,
+    payment_method: str | None = None,
+    merchant_id: str | None = None,
+    min_amount: float | None = None,
+    max_amount: float | None = None,
+    search: str | None = None,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db)

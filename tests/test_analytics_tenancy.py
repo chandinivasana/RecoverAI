@@ -15,14 +15,15 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
 
 from sqlalchemy import create_engine, func
 from sqlalchemy.orm import sessionmaker
-from app.database import Base
-from app.models import DBPayment, DBRecoveryExecution, DBRecoveryDecision, PaymentStatus
+
+from app.api.analytics import MERCHANT_PROFILES, get_ab_experiments, get_kpis, get_merchants
+from app.api.recovery import process_full_recovery_pipeline
 from app.core.rate_limiter import AcquirerRateLimitManager
 from app.core.redis_client import RedisManager
 from app.core.seed_data import seed_database
 from app.core.utils import merchant_for_amount
-from app.api.analytics import get_kpis, get_merchants, get_ab_experiments, MERCHANT_PROFILES
-from app.api.recovery import process_full_recovery_pipeline
+from app.database import Base
+from app.models import DBPayment, DBRecoveryDecision, DBRecoveryExecution, PaymentStatus
 
 
 def _reset_acquirer_state():
@@ -70,7 +71,7 @@ def test_kpis_partition_cleanly_by_merchant(seeded_db):
     assert sum(m["total_failed_transactions"] for m in per_merchant) == overall["total_failed_transactions"]
 
     # And each filter matches a direct query.
-    for m, profile in zip(per_merchant, MERCHANT_PROFILES):
+    for m, profile in zip(per_merchant, MERCHANT_PROFILES, strict=True):
         direct = seeded_db.query(func.sum(DBPayment.amount)).filter(
             DBPayment.merchant_id == profile["merchant_id"]).scalar() or 0.0
         assert m["revenue_at_risk"] == round(direct, 2)

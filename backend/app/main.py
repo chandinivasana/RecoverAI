@@ -4,11 +4,11 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .database import engine, Base, SessionLocal
+from .api import analytics, audit, evaluation, payments, policies, recovery, redteam, replay, reviews
+from .core.demo_warmup import warm_start_demo
 from .core.schema_guard import ensure_columns
 from .core.seed_data import seed_database
-from .core.demo_warmup import warm_start_demo
-from .api import payments, recovery, policies, reviews, evaluation, analytics, replay, redteam, audit
+from .database import Base, SessionLocal, engine
 
 
 def _env_flag(name: str, default: str) -> bool:

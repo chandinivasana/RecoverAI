@@ -1,6 +1,8 @@
-from typing import Dict, Any
-from ..models import FailureCategory, RecoveryAction, RiskLevel
+from typing import Any
+
 from ..core.cost_optimizer import CostOptimizer
+from ..models import FailureCategory, RecoveryAction, RiskLevel
+
 
 class RecoveryPlanner:
     """
@@ -10,7 +12,7 @@ class RecoveryPlanner:
     """
 
     @staticmethod
-    def plan(analysis_result: Dict[str, Any], payment_data: Dict[str, Any], customer_context: Dict[str, Any]) -> Dict[str, Any]:
+    def plan(analysis_result: dict[str, Any], payment_data: dict[str, Any], customer_context: dict[str, Any]) -> dict[str, Any]:
         failure_type = analysis_result.get("failure_type", FailureCategory.UNKNOWN.value)
         risk_level = analysis_result.get("risk_level", RiskLevel.LOW.value)
         intel = analysis_result.get("intelligence_signals", {})
@@ -18,7 +20,6 @@ class RecoveryPlanner:
         amount = float(payment_data.get("amount", 0.0))
         retry_count = int(payment_data.get("retry_count", 0))
         customer_successes = int(customer_context.get("past_successful_payments", 0))
-        customer_failures = int(customer_context.get("past_failed_payments", 0))
         propensity = float(intel.get("customer_propensity_score", 0.5))
         gateway_health = float(intel.get("gateway_health_score", 0.85))
 
@@ -45,7 +46,7 @@ class RecoveryPlanner:
             else:
                 recommended_action = RecoveryAction.STOP.value
                 recovery_probability = 0.05
-                reason = f"High risk transaction flagged; terminating recovery to avoid chargebacks."
+                reason = "High risk transaction flagged; terminating recovery to avoid chargebacks."
 
         # 2. Temporary Network Failure
         elif failure_type == FailureCategory.TEMPORARY_NETWORK_FAILURE.value:
@@ -62,7 +63,7 @@ class RecoveryPlanner:
             else:
                 recommended_action = RecoveryAction.DELAYED_RETRY.value
                 recovery_probability = 0.60
-                reason = f"Transient gateway issue detected. Scheduling delayed retry after bank queue clears."
+                reason = "Transient gateway issue detected. Scheduling delayed retry after bank queue clears."
 
         # 3. Insufficient Funds
         elif failure_type == FailureCategory.INSUFFICIENT_FUNDS.value:
@@ -73,7 +74,7 @@ class RecoveryPlanner:
             else:
                 recommended_action = RecoveryAction.PAYMENT_LINK.value
                 recovery_probability = 0.45
-                reason = f"Insufficient balance. Generated dynamic Razorpay payment link with UPI/NetBanking options."
+                reason = "Insufficient balance. Generated dynamic Razorpay payment link with UPI/NetBanking options."
 
         # 4. Payment Method Failure (Card Expired, Invalid VPA, Pin error)
         elif failure_type == FailureCategory.PAYMENT_METHOD_FAILURE.value:
@@ -87,11 +88,11 @@ class RecoveryPlanner:
             if customer_context.get("has_messaging_consent", True):
                 recommended_action = RecoveryAction.PAYMENT_LINK.value
                 recovery_probability = 0.50
-                reason = f"Checkout session abandoned. Sent WhatsApp/SMS recovery nudge with 1-click Razorpay payment link."
+                reason = "Checkout session abandoned. Sent WhatsApp/SMS recovery nudge with 1-click Razorpay payment link."
             else:
                 recommended_action = RecoveryAction.STOP.value
                 recovery_probability = 0.10
-                reason = f"Checkout abandoned, but customer has opted out of automated recovery messages. Stopping recovery."
+                reason = "Checkout abandoned, but customer has opted out of automated recovery messages. Stopping recovery."
 
         # 6. Unknown / Unclassified
         else:

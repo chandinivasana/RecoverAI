@@ -1,11 +1,14 @@
-from typing import List, Dict, Any
 from collections import Counter
+from typing import Any
+
 from sqlalchemy.orm import Session
+
 from ..models import DBPayment
+
 
 class AnomalyDetector:
     @staticmethod
-    def detect_anomalies(db: Session, lookback_count: int = 100) -> List[Dict[str, Any]]:
+    def detect_anomalies(db: Session, lookback_count: int = 100) -> list[dict[str, Any]]:
         """
         Analyzes recent failed payments vs historical baseline to flag anomalies.
         """

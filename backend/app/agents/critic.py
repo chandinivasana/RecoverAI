@@ -1,6 +1,7 @@
-from typing import Dict, Any
-from ..models import RecoveryAction
+from typing import Any
+
 from ..core.llm_reasoner import get_reasoner
+from ..models import RecoveryAction
 
 
 class RecoveryCritic:
@@ -20,8 +21,8 @@ class RecoveryCritic:
     """
 
     @staticmethod
-    def _deterministic_rules(plan_result: Dict[str, Any], payment_data: Dict[str, Any],
-                             customer_context: Dict[str, Any]) -> Dict[str, Any]:
+    def _deterministic_rules(plan_result: dict[str, Any], payment_data: dict[str, Any],
+                             customer_context: dict[str, Any]) -> dict[str, Any]:
         action = plan_result.get("recommended_action")
         amount = float(payment_data.get("amount", 0.0))
         past_failed = int(customer_context.get("past_failed_payments", 0))
@@ -49,8 +50,8 @@ class RecoveryCritic:
         }
 
     @staticmethod
-    def critique(plan_result: Dict[str, Any], payment_data: Dict[str, Any],
-                 customer_context: Dict[str, Any]) -> Dict[str, Any]:
+    def critique(plan_result: dict[str, Any], payment_data: dict[str, Any],
+                 customer_context: dict[str, Any]) -> dict[str, Any]:
         deterministic = RecoveryCritic._deterministic_rules(plan_result, payment_data, customer_context)
 
         reasoner = get_reasoner()
@@ -60,7 +61,7 @@ class RecoveryCritic:
 
         llm = reasoner.critique_plan(plan_result, payment_data, customer_context, deterministic)
         final = dict(deterministic)
-        llm_meta: Dict[str, Any] = {
+        llm_meta: dict[str, Any] = {
             "enabled": True,
             "provider": llm.get("provider"),
             "degraded": llm.get("degraded", False),

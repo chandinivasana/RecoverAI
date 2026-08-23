@@ -25,7 +25,7 @@ Every result dict carries: provider, degraded, latency_ms.
 import json
 import os
 import time
-from typing import Any, Dict, Optional, Tuple, Type
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -41,7 +41,7 @@ SYSTEM_PROMPT = (
 )
 
 
-def _wrap_untrusted(payment_data: Dict[str, Any], customer_context: Dict[str, Any]) -> str:
+def _wrap_untrusted(payment_data: dict[str, Any], customer_context: dict[str, Any]) -> str:
     compressed, _metrics = HeadroomContextCompressor.prepare_agent_context(payment_data, customer_context)
     return f"<untrusted_payment_data>{json.dumps(compressed, separators=(',', ':'))}</untrusted_payment_data>"
 
@@ -51,11 +51,11 @@ class DeterministicReasoner:
 
     name = "deterministic"
 
-    def _envelope(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def _envelope(self, payload: dict[str, Any]) -> dict[str, Any]:
         return {**payload, "provider": self.name, "degraded": False, "latency_ms": 0}
 
-    def explain_analysis(self, analysis: Dict[str, Any], payment_data: Dict[str, Any],
-                         customer_context: Dict[str, Any]) -> Dict[str, Any]:
+    def explain_analysis(self, analysis: dict[str, Any], payment_data: dict[str, Any],
+                         customer_context: dict[str, Any]) -> dict[str, Any]:
         intel = analysis.get("intelligence_signals", {}) or {}
         factors = [f"{key}={value}" for key, value in list(intel.items())[:5]
                    if isinstance(value, (int, float, str))]
@@ -69,9 +69,9 @@ class DeterministicReasoner:
             "confidence": round(min(1.0, max(0.0, confidence)), 2),
         })
 
-    def critique_plan(self, plan: Dict[str, Any], payment_data: Dict[str, Any],
-                      customer_context: Dict[str, Any],
-                      deterministic_result: Dict[str, Any]) -> Dict[str, Any]:
+    def critique_plan(self, plan: dict[str, Any], payment_data: dict[str, Any],
+                      customer_context: dict[str, Any],
+                      deterministic_result: dict[str, Any]) -> dict[str, Any]:
         # The deterministic critique IS the result — passed through unchanged.
         return self._envelope({
             "verdict": deterministic_result.get("verdict", "AGREE"),
@@ -79,7 +79,7 @@ class DeterministicReasoner:
             "suggested_override": deterministic_result.get("suggested_override"),
         })
 
-    def answer_refusal_question(self, question: str, context: Dict[str, Any]) -> Dict[str, Any]:
+    def answer_refusal_question(self, question: str, context: dict[str, Any]) -> dict[str, Any]:
         review = context.get("review", {})
         decision = context.get("decision", {})
         config = context.get("config", {})
@@ -116,7 +116,7 @@ class AnthropicReasoner:
 
     name = "anthropic"
 
-    def __init__(self, client=None, model: Optional[str] = None):
+    def __init__(self, client=None, model: str | None = None):
         if client is None:
             import anthropic  # lazy: only imported when the LLM is actually enabled
             client = anthropic.Anthropic(timeout=float(os.getenv("LLM_TIMEOUT_SECONDS", "6")))
@@ -126,7 +126,7 @@ class AnthropicReasoner:
         self._fallback = DeterministicReasoner()
 
     def _call_structured(self, user_content: str, tool_name: str,
-                         schema: Type[BaseModel]) -> Tuple[BaseModel, int]:
+                         schema: type[BaseModel]) -> tuple[BaseModel, int]:
         start = time.time()
         response = self.client.messages.create(
             model=self.model,
@@ -146,8 +146,8 @@ class AnthropicReasoner:
                 return schema.model_validate(block.input), latency_ms
         raise ValueError("No tool_use block returned by the model")
 
-    def _degraded(self, fallback_result: Dict[str, Any], error: Exception,
-                  started: float) -> Dict[str, Any]:
+    def _degraded(self, fallback_result: dict[str, Any], error: Exception,
+                  started: float) -> dict[str, Any]:
         return {
             **fallback_result,
             "provider": "deterministic-fallback",
@@ -156,8 +156,8 @@ class AnthropicReasoner:
             "fallback_error": f"{type(error).__name__}: {str(error)[:200]}",
         }
 
-    def explain_analysis(self, analysis: Dict[str, Any], payment_data: Dict[str, Any],
-                         customer_context: Dict[str, Any]) -> Dict[str, Any]:
+    def explain_analysis(self, analysis: dict[str, Any], payment_data: dict[str, Any],
+                         customer_context: dict[str, Any]) -> dict[str, Any]:
         started = time.time()
         try:
             deterministic_view = {
@@ -179,9 +179,9 @@ class AnthropicReasoner:
                 self._fallback.explain_analysis(analysis, payment_data, customer_context), exc, started
             )
 
-    def critique_plan(self, plan: Dict[str, Any], payment_data: Dict[str, Any],
-                      customer_context: Dict[str, Any],
-                      deterministic_result: Dict[str, Any]) -> Dict[str, Any]:
+    def critique_plan(self, plan: dict[str, Any], payment_data: dict[str, Any],
+                      customer_context: dict[str, Any],
+                      deterministic_result: dict[str, Any]) -> dict[str, Any]:
         started = time.time()
         try:
             user = (
@@ -200,7 +200,7 @@ class AnthropicReasoner:
                 exc, started,
             )
 
-    def answer_refusal_question(self, question: str, context: Dict[str, Any]) -> Dict[str, Any]:
+    def answer_refusal_question(self, question: str, context: dict[str, Any]) -> dict[str, Any]:
         started = time.time()
         try:
             records = {k: context.get(k) for k in ("review", "decision", "policy_rule", "policy_reason", "config")}
@@ -220,7 +220,7 @@ class AnthropicReasoner:
             )
 
 
-_reasoner_cache: Dict[str, Any] = {"key": None, "instance": None}
+_reasoner_cache: dict[str, Any] = {"key": None, "instance": None}
 
 
 def get_reasoner():

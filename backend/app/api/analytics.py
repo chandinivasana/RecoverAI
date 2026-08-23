@@ -1,14 +1,23 @@
-from typing import Any, Dict, List, Optional, Tuple
-from fastapi import APIRouter, Depends, Query
-from sqlalchemy.orm import Session
+from typing import Any
+
+from fastapi import APIRouter, Depends
 from sqlalchemy import func
-from ..database import get_db
-from ..models import (
-    DBPayment, DBRecoveryExecution, DBHumanReview, DBAuditEvent, DBRecoveryDecision,
-    PaymentStatus, ReviewStatus, RecoveryAction, FailureCategory
-)
+from sqlalchemy.orm import Session
+
 from ..core.anomaly_detector import AnomalyDetector
 from ..core.utils import safe_json_loads
+from ..database import get_db
+from ..models import (
+    DBAuditEvent,
+    DBHumanReview,
+    DBPayment,
+    DBRecoveryDecision,
+    DBRecoveryExecution,
+    FailureCategory,
+    PaymentStatus,
+    RecoveryAction,
+    ReviewStatus,
+)
 
 router = APIRouter(prefix="/api/analytics", tags=["Analytics"])
 
@@ -21,7 +30,7 @@ SYNTHETIC_DATA_DISCLOSURE = (
 )
 
 
-def _merchant_payment_ids(db: Session, merchant_id: Optional[str]):
+def _merchant_payment_ids(db: Session, merchant_id: str | None):
     """Subquery of payment_ids for one merchant (None = all merchants)."""
     q = db.query(DBPayment.payment_id)
     if merchant_id:
@@ -30,7 +39,7 @@ def _merchant_payment_ids(db: Session, merchant_id: Optional[str]):
 
 
 @router.get("/kpis")
-def get_kpis(merchant_id: Optional[str] = None, db: Session = Depends(get_db)):
+def get_kpis(merchant_id: str | None = None, db: Session = Depends(get_db)):
     """
     Primary KPI cards for the Revenue Intelligence Dashboard.
     merchant_id genuinely filters every aggregate (multi-tenant isolation).
@@ -147,7 +156,7 @@ EXPERIMENT_DEFINITIONS = [
 MIN_COHORT_FOR_SIGNIFICANCE = 20
 
 
-def _cohort_stats(db: Session, failure_type: str, action: str) -> Tuple[int, int, float]:
+def _cohort_stats(db: Session, failure_type: str, action: str) -> tuple[int, int, float]:
     rows = (
         db.query(DBRecoveryExecution)
         .join(DBRecoveryDecision, DBRecoveryExecution.decision_id == DBRecoveryDecision.decision_id)
@@ -184,8 +193,8 @@ def get_ab_experiments(db: Session = Depends(get_db)):
         rate_b = round((rec_b / att_b * 100), 1) if att_b > 0 else 0.0
         lift = round(rate_b - rate_a, 1)
 
-        chi2_stat: Optional[float] = None
-        p_value: Optional[float] = None
+        chi2_stat: float | None = None
+        p_value: float | None = None
         sufficient = att_a >= MIN_COHORT_FOR_SIGNIFICANCE and att_b >= MIN_COHORT_FOR_SIGNIFICANCE
         if att_a > 0 and att_b > 0:
             try:
@@ -246,7 +255,7 @@ def get_ab_experiments(db: Session = Depends(get_db)):
 
 
 @router.get("/timeseries")
-def get_timeseries(merchant_id: Optional[str] = None, db: Session = Depends(get_db)):
+def get_timeseries(merchant_id: str | None = None, db: Session = Depends(get_db)):
     """
     Revenue at risk vs. recovered over the last 14 days (merchant-filterable).
     """
@@ -255,7 +264,7 @@ def get_timeseries(merchant_id: Optional[str] = None, db: Session = Depends(get_
         query = query.filter(DBPayment.merchant_id == merchant_id)
     payments = query.order_by(DBPayment.created_at.asc()).all()
 
-    buckets: Dict[str, Dict[str, Any]] = {}
+    buckets: dict[str, dict[str, Any]] = {}
     for p in payments:
         date_str = p.created_at.strftime("%b %d")
         if date_str not in buckets:
@@ -281,7 +290,7 @@ def get_timeseries(merchant_id: Optional[str] = None, db: Session = Depends(get_
 
 
 @router.get("/strategies")
-def get_strategy_analytics(merchant_id: Optional[str] = None, db: Session = Depends(get_db)):
+def get_strategy_analytics(merchant_id: str | None = None, db: Session = Depends(get_db)):
     """
     Section 23 Recovery Strategy Analytics table (merchant-filterable):
     Strategy | Attempts | Recoveries | Recovery Rate | Revenue Recovered

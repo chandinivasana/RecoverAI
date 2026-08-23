@@ -1,8 +1,8 @@
-from typing import Dict
+
 from ..models import RecoveryAction
 
 # Action execution cost in INR
-ACTION_COST_MAP: Dict[str, float] = {
+ACTION_COST_MAP: dict[str, float] = {
     RecoveryAction.RETRY.value: 2.00,
     RecoveryAction.DELAYED_RETRY.value: 2.50,
     RecoveryAction.ALTERNATE_METHOD.value: 4.00,

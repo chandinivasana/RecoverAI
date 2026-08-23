@@ -1,10 +1,13 @@
 import enum
 from datetime import datetime
-from typing import Optional, Dict, Any, List
+from typing import Any
+
 from pydantic import BaseModel, Field
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, Text, Enum as SQLEnum, ForeignKey
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import relationship
+
 from .database import Base
+
 
 class FailureCategory(str, enum.Enum):
     TEMPORARY_NETWORK_FAILURE = "TEMPORARY_NETWORK_FAILURE"
@@ -205,31 +208,31 @@ class DBPolicyConfig(Base):
 
 class CustomerContext(BaseModel):
     customer_id: str
-    customer_name: Optional[str] = "Anonymous"
-    tenure_months: Optional[int] = 6
-    lifetime_value: Optional[float] = 10000.0
-    past_successful_payments: Optional[int] = 5
-    past_failed_payments: Optional[int] = 1
-    preferred_payment_method: Optional[str] = "upi"
-    last_successful_payment_days_ago: Optional[int] = 3
-    risk_score: Optional[float] = 0.1
-    has_messaging_consent: Optional[bool] = True
+    customer_name: str | None = "Anonymous"
+    tenure_months: int | None = 6
+    lifetime_value: float | None = 10000.0
+    past_successful_payments: int | None = 5
+    past_failed_payments: int | None = 1
+    preferred_payment_method: str | None = "upi"
+    last_successful_payment_days_ago: int | None = 3
+    risk_score: float | None = 0.1
+    has_messaging_consent: bool | None = True
 
 class PaymentEventIngestRequest(BaseModel):
     event_id: str
     payment_id: str
     customer_id: str
-    customer_name: Optional[str] = "Anonymous"
-    customer_email: Optional[str] = ""
-    customer_phone: Optional[str] = ""
+    customer_name: str | None = "Anonymous"
+    customer_email: str | None = ""
+    customer_phone: str | None = ""
     amount: float
     currency: str = "INR"
     payment_method: str
     failure_reason: str
-    error_code: Optional[str] = "GENERIC_ERROR"
-    timestamp: Optional[str] = None
-    customer_context: Optional[Dict[str, Any]] = None
-    metadata: Optional[Dict[str, Any]] = None
+    error_code: str | None = "GENERIC_ERROR"
+    timestamp: str | None = None
+    customer_context: dict[str, Any] | None = None
+    metadata: dict[str, Any] | None = None
 
 class PaymentResponse(BaseModel):
     payment_id: str
@@ -259,9 +262,9 @@ class RecoveryDecisionResponse(BaseModel):
     expected_net_recovery: float
     action_cost: float
     reason: str
-    signals: Dict[str, Any]
-    critic_verdict: Optional[str] = "AGREE"
-    critic_notes: Optional[str] = ""
+    signals: dict[str, Any]
+    critic_verdict: str | None = "AGREE"
+    critic_notes: str | None = ""
     requires_human: bool = False
     created_at: datetime
 
@@ -282,17 +285,17 @@ class RecoveryExecutionResponse(BaseModel):
     status: str
     result: str
     amount_recovered: float
-    details: Dict[str, Any]
+    details: dict[str, Any]
     executed_at: datetime
 
 class PipelineProcessResponse(BaseModel):
     payment_id: str
-    event_id: Optional[str] = None
+    event_id: str | None = None
     idempotent_duplicate: bool = False
-    decision: Optional[RecoveryDecisionResponse] = None
-    policy_decision: Optional[PolicyDecisionResponse] = None
-    execution: Optional[RecoveryExecutionResponse] = None
-    escalation: Optional[Dict[str, Any]] = None
+    decision: RecoveryDecisionResponse | None = None
+    policy_decision: PolicyDecisionResponse | None = None
+    execution: RecoveryExecutionResponse | None = None
+    escalation: dict[str, Any] | None = None
     status: str
     message: str
 
@@ -307,7 +310,7 @@ class PolicyConfigSchema(BaseModel):
 
 class PolicySimulationRequest(BaseModel):
     proposed_config: PolicyConfigSchema
-    dataset_split: Optional[str] = "dev"  # dev, eval, or all
+    dataset_split: str | None = "dev"  # dev, eval, or all
 
 class PolicySimulationResponse(BaseModel):
     current_config: PolicyConfigSchema
@@ -329,5 +332,5 @@ class PolicySimulationResponse(BaseModel):
 
 class HumanReviewActionRequest(BaseModel):
     reviewer: str = "Merchant Ops Admin"
-    notes: Optional[str] = ""
-    override_action: Optional[str] = None  # if null, executes recommended action
+    notes: str | None = ""
+    override_action: str | None = None  # if null, executes recommended action

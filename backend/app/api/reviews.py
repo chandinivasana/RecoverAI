@@ -1,18 +1,26 @@
 from datetime import datetime
-from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
-from ..database import get_db
-from ..models import (
-    DBHumanReview, DBPayment, DBRecoveryDecision, DBPolicyDecision,
-    DBPolicyConfig, ReviewStatus, PaymentStatus, HumanReviewActionRequest, RecoveryAction
-)
+
 from ..agents.payment_analyst import PaymentAnalyst
 from ..agents.recovery_executor import RecoveryExecutor
 from ..core.audit import append_audit
 from ..core.llm_reasoner import get_reasoner
 from ..core.utils import safe_json_loads
+from ..database import get_db
+from ..models import (
+    DBHumanReview,
+    DBPayment,
+    DBPolicyConfig,
+    DBPolicyDecision,
+    DBRecoveryDecision,
+    HumanReviewActionRequest,
+    PaymentStatus,
+    RecoveryAction,
+    ReviewStatus,
+)
 from ..policy.engine import PolicyEngine
 
 
@@ -26,7 +34,7 @@ EXECUTABLE_ACTIONS = VALID_ACTIONS - {RecoveryAction.HUMAN_REVIEW.value}
 
 @router.get("")
 def list_human_reviews(
-    status: Optional[str] = None,
+    status: str | None = None,
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db)

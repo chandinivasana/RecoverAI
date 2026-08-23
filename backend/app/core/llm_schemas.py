@@ -9,7 +9,7 @@ These schemas are the safety boundary on what the LLM may say:
 - The LLM never gates execution regardless: the deterministic PolicyEngine
   remains the only authority over money movement.
 """
-from typing import List, Literal, Optional
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -17,15 +17,15 @@ from pydantic import BaseModel, Field
 class LLMCritique(BaseModel):
     verdict: Literal["AGREE", "DISAGREE"]
     notes: str = Field(..., max_length=600)
-    suggested_override: Optional[Literal["HUMAN_REVIEW", "STOP"]] = None
+    suggested_override: Literal["HUMAN_REVIEW", "STOP"] | None = None
 
 
 class LLMExplanation(BaseModel):
     narrative: str = Field(..., max_length=900)
-    contributing_factors: List[str] = Field(default_factory=list, max_length=5)
+    contributing_factors: list[str] = Field(default_factory=list, max_length=5)
     confidence: float = Field(..., ge=0.0, le=1.0)
 
 
 class LLMRefusalAnswer(BaseModel):
     answer: str = Field(..., max_length=1400)
-    cited_rules: List[str] = Field(default_factory=list, max_length=6)
+    cited_rules: list[str] = Field(default_factory=list, max_length=6)

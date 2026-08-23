@@ -1,13 +1,14 @@
 import json
-from typing import Dict, Any, Optional
+
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from ..database import get_db
-from ..models import DBPayment, DBPolicyConfig, RecoveryAction
+
+from ..agents.critic import RecoveryCritic
 from ..agents.payment_analyst import PaymentAnalyst
 from ..agents.recovery_planner import RecoveryPlanner
-from ..agents.critic import RecoveryCritic
+from ..database import get_db
+from ..models import DBPayment, DBPolicyConfig, RecoveryAction
 from ..policy.engine import PolicyEngine
 
 router = APIRouter(prefix="/api/replay", tags=["Time-Travel Replay"])
@@ -24,14 +25,14 @@ def _effective_action(plan: dict, critic: dict) -> tuple:
 
 
 class ReplayRequest(BaseModel):
-    payment_id: Optional[str] = None
-    override_amount: Optional[float] = None
-    override_failure_reason: Optional[str] = None
-    override_error_code: Optional[str] = None
-    override_payment_method: Optional[str] = None
-    override_retry_count: Optional[int] = None
-    override_risk_score: Optional[float] = None
-    override_messaging_consent: Optional[bool] = None
+    payment_id: str | None = None
+    override_amount: float | None = None
+    override_failure_reason: str | None = None
+    override_error_code: str | None = None
+    override_payment_method: str | None = None
+    override_retry_count: int | None = None
+    override_risk_score: float | None = None
+    override_messaging_consent: bool | None = None
 
 @router.post("")
 def run_time_travel_replay(req: ReplayRequest, db: Session = Depends(get_db)):

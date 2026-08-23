@@ -21,7 +21,7 @@ import hashlib
 import json
 import uuid
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any
 
 from sqlalchemy.orm import Session
 
@@ -55,7 +55,7 @@ def append_audit(
     payment_id: str,
     event_type: str,
     actor: str,
-    metadata: Optional[Dict[str, Any]] = None,
+    metadata: dict[str, Any] | None = None,
 ) -> DBAuditEvent:
     """Appends one event to the global audit hash chain and returns the row."""
     last = db.query(DBAuditEvent).order_by(DBAuditEvent.id.desc()).first()
@@ -85,7 +85,7 @@ def append_audit(
     return event
 
 
-def verify_chain(db: Session) -> Dict[str, Any]:
+def verify_chain(db: Session) -> dict[str, Any]:
     """
     Walks the full chain in insertion order and recomputes every hash.
     Returns intact=True, or the first broken link with a reason:

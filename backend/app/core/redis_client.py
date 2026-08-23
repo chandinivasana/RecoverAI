@@ -1,7 +1,7 @@
+import json
 import os
 import time
-import json
-from typing import Dict, Any, Optional
+from typing import Any
 
 try:
     import redis
@@ -15,8 +15,8 @@ class RedisManager:
     Connects to Redis server via REDIS_URL with transparent fallback to in-memory store.
     """
     _client = None
-    _memory_store: Dict[str, Any] = {}
-    _memory_expiry: Dict[str, float] = {}
+    _memory_store: dict[str, Any] = {}
+    _memory_expiry: dict[str, float] = {}
 
     @classmethod
     def get_client(cls):
@@ -32,7 +32,7 @@ class RedisManager:
         return cls._client if cls._client else None
 
     @classmethod
-    def get(cls, key: str) -> Optional[str]:
+    def get(cls, key: str) -> str | None:
         client = cls.get_client()
         if client:
             try:
@@ -49,7 +49,7 @@ class RedisManager:
         return cls._memory_store.get(key)
 
     @classmethod
-    def set(cls, key: str, value: str, ex: Optional[int] = None) -> bool:
+    def set(cls, key: str, value: str, ex: int | None = None) -> bool:
         client = cls.get_client()
         if client:
             try:
@@ -65,7 +65,7 @@ class RedisManager:
         return True
 
     @classmethod
-    def incr(cls, key: str, ex: Optional[int] = None) -> int:
+    def incr(cls, key: str, ex: int | None = None) -> int:
         client = cls.get_client()
         if client:
             try:
@@ -92,7 +92,7 @@ class RedisManager:
         return cls.get(f"merchant:{merchant_id}:env_mode") or "test"
 
     @classmethod
-    def publish_event(cls, channel: str, message: Dict[str, Any]) -> None:
+    def publish_event(cls, channel: str, message: dict[str, Any]) -> None:
         """Publishes live agent decision telemetry."""
         client = cls.get_client()
         if client:

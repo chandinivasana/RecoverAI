@@ -20,7 +20,7 @@ computed against them measure decision quality within a disclosed generative
 model, not production recovery performance.
 """
 import random
-from typing import Any, Dict, Tuple
+from typing import Any
 
 from ..models import FailureCategory, RecoveryAction
 
@@ -65,7 +65,7 @@ DEFAULT_EFFECTIVENESS = 0.55
 NON_MONETARY_ACTIONS = frozenset({RecoveryAction.HUMAN_REVIEW.value, RecoveryAction.STOP.value})
 
 
-def latent_recovery_prob(failure_category: str, amount: float, meta: Dict[str, Any]) -> float:
+def latent_recovery_prob(failure_category: str, amount: float, meta: dict[str, Any]) -> float:
     """Latent P(recoverable) from seed-time facts only — never from planner output."""
     p = BASE_RECOVERABILITY.get(failure_category, BASE_RECOVERABILITY[FailureCategory.UNKNOWN.value])
     p *= 1.0 - min(0.30, float(amount) / 500_000.0)  # big tickets recover less often
@@ -78,8 +78,8 @@ def latent_recovery_prob(failure_category: str, amount: float, meta: Dict[str, A
 
 
 def assign_ground_truth(
-    payment_id: str, failure_category: str, amount: float, meta: Dict[str, Any]
-) -> Tuple[bool, float, int]:
+    payment_id: str, failure_category: str, amount: float, meta: dict[str, Any]
+) -> tuple[bool, float, int]:
     """
     Returns (recoverable, latent_probability, outcome_seed) for one payment.
     Deterministic per payment_id; independent of the planner and the dataset RNG.

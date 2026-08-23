@@ -1,16 +1,24 @@
-import uuid
 import json
+import uuid
 from datetime import datetime
-from typing import Dict, Any
+from typing import Any
+
 from sqlalchemy.orm import Session
-from ..models import (
-    DBPayment, DBRecoveryExecution, DBHumanReview,
-    RecoveryAction, PaymentStatus, ReviewStatus, FailureCategory
-)
+
 from ..core.audit import append_audit
 from ..core.outcome_model import assign_ground_truth, simulate_action_outcome
 from ..core.rate_limiter import AcquirerRateLimitManager
+from ..models import (
+    DBHumanReview,
+    DBPayment,
+    DBRecoveryExecution,
+    FailureCategory,
+    PaymentStatus,
+    RecoveryAction,
+    ReviewStatus,
+)
 from ..policy.rules import PolicyEvaluationResult
+
 
 class RecoveryExecutor:
     """
@@ -20,7 +28,7 @@ class RecoveryExecutor:
     """
 
     @staticmethod
-    def _register_acquirer_failure(db: Session, payment: DBPayment) -> Dict[str, Any]:
+    def _register_acquirer_failure(db: Session, payment: DBPayment) -> dict[str, Any]:
         """Feeds failed retries into the acquirer error window; trips the circuit
         breaker at the threshold and records an audit event when it opens."""
         breaker = AcquirerRateLimitManager.register_acquirer_failure(
@@ -37,9 +45,9 @@ class RecoveryExecutor:
         payment: DBPayment,
         action: str,
         policy_result: PolicyEvaluationResult,
-        decision_data: Dict[str, Any],
+        decision_data: dict[str, Any],
         actor: str = "RecoverAI-Executor"
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         execution_id = f"exec_{uuid.uuid4().hex[:10]}"
         amount = payment.amount
         prob = decision_data.get("recovery_probability", 0.5)

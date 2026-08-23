@@ -22,14 +22,14 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from app.database import Base
-from app.models import DBPayment, DBPolicyConfig, DBAuditEvent, PaymentStatus, RecoveryAction
-from app.core.llm_reasoner import AnthropicReasoner, DeterministicReasoner, get_reasoner, _reasoner_cache
-from app.core.audit import verify_chain
+
+import app.agents.critic as critic_module
 from app.agents.critic import RecoveryCritic
 from app.api.recovery import process_full_recovery_pipeline
-import app.agents.critic as critic_module
-
+from app.core.audit import verify_chain
+from app.core.llm_reasoner import AnthropicReasoner, DeterministicReasoner, _reasoner_cache, get_reasoner
+from app.database import Base
+from app.models import DBAuditEvent, DBPayment, DBPolicyConfig, PaymentStatus, RecoveryAction
 
 # --- Fakes -------------------------------------------------------------------
 

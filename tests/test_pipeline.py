@@ -1,25 +1,30 @@
-import pytest
 import os
 import sys
+
+import pytest
 
 # Add backend to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "backend")))
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+
+from app.agents.payment_analyst import PaymentAnalyst
+from app.agents.recovery_executor import RecoveryExecutor
+from app.agents.recovery_planner import RecoveryPlanner
+from app.core.cost_optimizer import CostOptimizer
+from app.core.idempotency import IdempotencyManager
 from app.database import Base
 from app.models import (
-    DBPayment, DBPaymentEvent, DBPolicyConfig, RecoveryAction, FailureCategory, RiskLevel,
-    PaymentStatus, ReviewStatus
+    DBPayment,
+    DBPolicyConfig,
+    FailureCategory,
+    PaymentStatus,
+    RecoveryAction,
+    RiskLevel,
 )
-from app.core.idempotency import IdempotencyManager
-from app.core.cost_optimizer import CostOptimizer
-from app.agents.payment_analyst import PaymentAnalyst
-from app.agents.recovery_planner import RecoveryPlanner
-from app.agents.critic import RecoveryCritic
-from app.agents.recovery_executor import RecoveryExecutor
-from app.policy.rules import PolicyRules
 from app.policy.engine import PolicyEngine
+
 
 @pytest.fixture
 def test_db():
