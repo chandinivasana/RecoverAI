@@ -2,6 +2,8 @@
 
 import React, { useState } from 'react';
 import {
+  ActionList,
+  ActionListItem,
   Amount,
   Badge,
   Box,
@@ -15,11 +17,14 @@ import {
   CheckCircleIcon,
   Code,
   Counter,
+  Dropdown,
+  DropdownOverlay,
   EmptyState,
   EyeIcon,
   Heading,
   Link,
   MessageCircleIcon,
+  SelectInput,
   SendIcon,
   StopCircleIcon,
   TabItem,
@@ -42,6 +47,19 @@ interface HumanReviewCenterProps {
 type ReviewFilter = 'PENDING' | 'APPROVED' | 'REJECTED' | 'ALL';
 
 const FILTERS: ReviewFilter[] = ['PENDING', 'APPROVED', 'REJECTED', 'ALL'];
+
+// The bounded, executable action space (HUMAN_REVIEW is an escalation, not an
+// executable recovery — the backend rejects approving it without an override).
+const EXECUTABLE_ACTIONS = [
+  { value: 'RETRY', title: 'Retry payment' },
+  { value: 'DELAYED_RETRY', title: 'Delayed retry' },
+  { value: 'ALTERNATE_METHOD', title: 'Alternate payment method' },
+  { value: 'PAYMENT_LINK', title: '1-click payment link' },
+  { value: 'STOP', title: 'Stop (no further recovery)' },
+] as const;
+
+const defaultActionFor = (proposedAction: string): string =>
+  EXECUTABLE_ACTIONS.some((a) => a.value === proposedAction) ? proposedAction : 'RETRY';
 
 const statusBadgeColor = (
   status: HumanReviewItem['status'],
@@ -84,6 +102,9 @@ export const HumanReviewCenter: React.FC<HumanReviewCenterProps> = ({
   const [qnaQuestion, setQnaQuestion] = useState('');
   const [qnaLoading, setQnaLoading] = useState(false);
   const [qnaAnswer, setQnaAnswer] = useState<RefusalExplanation | null>(null);
+  // Per-review action the officer approves as (defaults to the proposed action
+  // when executable). Always sent explicitly — approval is a concrete decision.
+  const [approveActions, setApproveActions] = useState<Record<string, string>>({});
 
   const errorMessage = (err: unknown): string =>
     err instanceof Error ? err.message : String(err);
@@ -115,15 +136,33 @@ export const HumanReviewCenter: React.FC<HumanReviewCenterProps> = ({
     }
   };
 
-  const handleApprove = async (reviewId: string): Promise<void> => {
+  const handleApprove = async (reviewId: string, action: string): Promise<void> => {
     setActionLoading({ id: reviewId, kind: 'approve' });
     try {
-      await approveReview(reviewId, 'Approved by Merchant Risk Officer');
-      toast.show({
-        content: 'Execution approved — recovery will proceed.',
-        color: 'positive',
-        autoDismiss: true,
-      });
+      const result = await approveReview(reviewId, 'Approved by Merchant Risk Officer', action);
+      const executed: string = result?.execution?.status || 'SUBMITTED';
+      const recovered: number = result?.execution?.amount_recovered || 0;
+      // Honest outcome reporting: sign-off succeeding and the recovery attempt
+      // succeeding are different things (outcomes come from the ground-truth model).
+      if (executed === 'SUCCESS') {
+        toast.show({
+          content: `Approved as ${action} — recovered ₹${recovered.toLocaleString('en-IN')}.`,
+          color: 'positive',
+          autoDismiss: true,
+        });
+      } else if (executed === 'FAILED') {
+        toast.show({
+          content: `Approved as ${action}; the attempt was executed but did not recover the payment.`,
+          color: 'notice',
+          autoDismiss: true,
+        });
+      } else {
+        toast.show({
+          content: `Approved as ${action} — ${executed.toLowerCase()}.`,
+          color: 'information',
+          autoDismiss: true,
+        });
+      }
       onRefresh();
     } catch (err) {
       // A hard policy rule can refuse even human sign-off (HTTP 409). The API
@@ -289,7 +328,31 @@ export const HumanReviewCenter: React.FC<HumanReviewCenterProps> = ({
               </Box>
 
               {rev.status === 'PENDING' && (
-                <Box display="flex" flexDirection="row" gap="spacing.3">
+                <Box display="flex" flexDirection="row" flexWrap="wrap" alignItems="center" gap="spacing.3">
+                  <Box minWidth="220px">
+                    <Dropdown selectionType="single">
+                      <SelectInput
+                        accessibilityLabel="Action to approve"
+                        name={`approve-as-${rev.review_id}`}
+                        placeholder="Approve as…"
+                        value={approveActions[rev.review_id] ?? defaultActionFor(rev.proposed_action)}
+                        onChange={({ values }) => {
+                          const next = values[0];
+                          if (next) {
+                            setApproveActions((prev) => ({ ...prev, [rev.review_id]: next }));
+                          }
+                        }}
+                        size="medium"
+                      />
+                      <DropdownOverlay>
+                        <ActionList>
+                          {EXECUTABLE_ACTIONS.map((a) => (
+                            <ActionListItem key={a.value} title={a.title} value={a.value} />
+                          ))}
+                        </ActionList>
+                      </DropdownOverlay>
+                    </Dropdown>
+                  </Box>
                   <Button
                     variant="secondary"
                     color="negative"
@@ -308,7 +371,12 @@ export const HumanReviewCenter: React.FC<HumanReviewCenterProps> = ({
                     icon={CheckCircleIcon}
                     isLoading={isActing && actionLoading?.kind === 'approve'}
                     isDisabled={isActing && actionLoading?.kind !== 'approve'}
-                    onClick={() => handleApprove(rev.review_id)}
+                    onClick={() =>
+                      handleApprove(
+                        rev.review_id,
+                        approveActions[rev.review_id] ?? defaultActionFor(rev.proposed_action),
+                      )
+                    }
                   >
                     Approve Execution
                   </Button>
