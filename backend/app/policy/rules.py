@@ -1,7 +1,7 @@
 import re
 from typing import Dict, Any, Tuple
 from ..models import RecoveryAction, RiskLevel, DBPolicyConfig
-from ..core.consent_registry import DPDPairConsentRegistry
+from ..core.consent_registry import DPDPConsentRegistry
 from ..core.rate_limiter import AcquirerRateLimitManager
 
 class PolicyEvaluationResult:
@@ -56,14 +56,28 @@ class PolicyRules:
 
     @staticmethod
     def check_customer_consent(action: str, customer_id: str, customer_context: Dict[str, Any], require_consent: bool) -> Tuple[bool, str]:
-        if action in [RecoveryAction.PAYMENT_LINK.value, RecoveryAction.ALTERNATE_METHOD.value]:
-            if require_consent:
-                # Check DPDP registry
-                consent_res = DPDPairConsentRegistry.check_consent(customer_id)
-                if not consent_res.get("allowed", True):
-                    return False, consent_res.get("reason")
-                if not customer_context.get("has_messaging_consent", True):
-                    return False, "DPDP Act Privacy Policy: Direct customer messaging/nudge is blocked without explicit user communication consent."
+        if action not in [RecoveryAction.PAYMENT_LINK.value, RecoveryAction.ALTERNATE_METHOD.value]:
+            return True, "No customer-facing communication involved in this action."
+        if not require_consent:
+            return True, "Merchant policy does not require consent verification for nudges."
+
+        consent_res = DPDPConsentRegistry.check_consent(customer_id)
+        if consent_res.get("allowed") is False:
+            # Explicit opt-out on file always blocks.
+            return False, consent_res.get("reason")
+        if consent_res.get("allowed") is None:
+            # FAIL CLOSED: no registry record — require explicit consent on the
+            # transaction context itself. An absent signal is NOT consent.
+            if customer_context.get("has_messaging_consent") is not True:
+                return False, (
+                    "DPDP Act Privacy Policy: no consent record on file and no explicit "
+                    "communication consent in the transaction context. Failing closed — "
+                    "customer nudge blocked."
+                )
+            return True, "DPDP consent verified via explicit transaction-context consent."
+        # Registry opt-in on file; an explicit context opt-out still blocks.
+        if not customer_context.get("has_messaging_consent", True):
+            return False, "DPDP Act Privacy Policy: Direct customer messaging/nudge is blocked without explicit user communication consent."
         return True, "Customer DPDP communication consent verified."
 
     @staticmethod

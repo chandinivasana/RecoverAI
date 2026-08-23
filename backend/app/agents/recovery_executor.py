@@ -8,6 +8,7 @@ from ..models import (
     RecoveryAction, PaymentStatus, ReviewStatus, FailureCategory
 )
 from ..core.outcome_model import assign_ground_truth, simulate_action_outcome
+from ..core.rate_limiter import AcquirerRateLimitManager
 from ..policy.rules import PolicyEvaluationResult
 
 class RecoveryExecutor:
@@ -16,6 +17,24 @@ class RecoveryExecutor:
     Executes ONLY policy-approved recovery actions within simulated or production payment rails.
     Never executes if policy engine rejected the action.
     """
+
+    @staticmethod
+    def _register_acquirer_failure(db: Session, payment: DBPayment) -> Dict[str, Any]:
+        """Feeds failed retries into the acquirer error window; trips the circuit
+        breaker at the threshold and records an audit event when it opens."""
+        breaker = AcquirerRateLimitManager.register_acquirer_failure(
+            payment.payment_method, payment.error_code or ""
+        )
+        if breaker["circuit_breaker_tripped"]:
+            db.add(DBAuditEvent(
+                audit_id=f"aud_{uuid.uuid4().hex[:10]}",
+                payment_id=payment.payment_id,
+                event_type="CIRCUIT_BREAKER_TRIPPED",
+                actor="AcquirerRateLimitManager",
+                metadata_json=json.dumps(breaker),
+                timestamp=datetime.utcnow()
+            ))
+        return breaker
 
     @staticmethod
     def execute(
@@ -230,6 +249,7 @@ class RecoveryExecutor:
                 payment.status = PaymentStatus.FAILED.value
                 result_text = f"Automated retry attempt {payment.retry_count} failed."
                 details = {"retry_attempt": payment.retry_count, "settled": False}
+                details["acquirer_failure_tracking"] = RecoveryExecutor._register_acquirer_failure(db, payment)
 
         elif action == RecoveryAction.DELAYED_RETRY.value:
             payment.retry_count += 1
@@ -242,6 +262,7 @@ class RecoveryExecutor:
                 payment.status = PaymentStatus.FAILED.value
                 result_text = "Delayed retry attempt failed."
                 details = {"settled": False}
+                details["acquirer_failure_tracking"] = RecoveryExecutor._register_acquirer_failure(db, payment)
 
         elif action == RecoveryAction.ALTERNATE_METHOD.value:
             if is_success:

@@ -116,7 +116,12 @@ export async function approveReview(reviewId: string, notes?: string, overrideAc
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ reviewer: 'Merchant Ops Admin', notes: notes || 'Approved manually', override_action: overrideAction }),
   });
-  if (!res.ok) throw new Error('Failed to approve review');
+  if (!res.ok) {
+    // Surface hard-policy refusals (HTTP 409) verbatim — "even humans cannot
+    // override the injection defense" is a feature, not a generic failure.
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.detail || 'Failed to approve review');
+  }
   return res.json();
 }
 
@@ -126,7 +131,10 @@ export async function rejectReview(reviewId: string, notes?: string) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ reviewer: 'Merchant Ops Admin', notes: notes || 'Rejected manually' }),
   });
-  if (!res.ok) throw new Error('Failed to reject review');
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.detail || 'Failed to reject review');
+  }
   return res.json();
 }
 

@@ -24,7 +24,7 @@ AI proposes → Policy validates → System executes → Audit records → Metri
 | --- | --- | --- | --- |
 | 0 | Git baseline + repo hygiene (`/docs`, LICENSE, badges, PRD as markdown, stub-package fix) | ✅ Done | Local git history started; docs live in-repo |
 | 1 | Ground-truth benchmark — kill circular metrics | ✅ Done | Measured on held-out eval: Brier 0.2168, ECE 0.0979, FP cost ₹4.61L surfaced, leakage measured ₹0, 12 recoverable payments (₹3.05L) honestly reported as gated by safety. Eval byte-identical across runs. 29/29 tests. |
-| 2 | Policy integrity (human-approve re-validation, consequential Critic, fail-closed consent, live circuit breaker, red-team honesty) | ⏳ Planned | |
+| 2 | Policy integrity (human-approve re-validation, consequential Critic, fail-closed consent, live circuit breaker, red-team honesty) | ✅ Done | Approvals re-validate via `human_approved=True` (hard rules bind even humans — verified live: injection approval → 409, ₹85k sign-off → HUMAN_SIGN_OFF_WITHIN_HARD_LIMITS). Critic override consequential + audited. Consent fails closed for unknown customers. Breaker tripped 9× in warm start, audited. All 5 red-team verdicts earned (quota scenario now forces RETRY → MAX_RETRY_LIMIT). 43/43 tests. |
 | 3 | Tamper-evident audit chain (SHA-256 hash chain + `/api/audit/verify`) | ⏳ Planned | |
 | 4 | LLM reasoning layer (feature-flagged, deterministic fallback, refusal Q&A) | ⏳ Planned | |
 | 5 | Honest analytics + real multi-tenant filtering | ⏳ Planned | |
