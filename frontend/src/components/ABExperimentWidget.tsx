@@ -1,80 +1,243 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { GitCompare, TrendingUp, CheckCircle2 } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import {
+  Amount,
+  Badge,
+  Box,
+  Card,
+  CardBody,
+  CardHeader,
+  CardHeaderCounter,
+  CardHeaderIcon,
+  CardHeaderLeading,
+  Code,
+  ProgressBar,
+  Spinner,
+  Text,
+  TrendingDownIcon,
+  TrendingUpIcon,
+} from '@razorpay/blade/components';
+import { fetchExperiments } from '../lib/api';
 
-interface ABExperimentWidgetProps {
-  // Can fetch from /api/analytics/experiments
+// No props today — the widget owns its data fetch (/api/analytics/experiments).
+type ABExperimentWidgetProps = Record<string, never>;
+
+interface ExperimentVariant {
+  name: string;
+  attempts: number;
+  recovered: number;
+  recovery_rate_percent: number;
+  revenue_recovered: number;
 }
 
+interface Experiment {
+  experiment_id: string;
+  title: string;
+  status: string;
+  sample_size: number;
+  variant_a: ExperimentVariant;
+  variant_b: ExperimentVariant;
+  chi2_statistic: number | null;
+  stat_significance_p_value: number | null;
+  lift_percent: number;
+  conclusion: string;
+  data_source?: string;
+}
+
+type BadgeColor = 'positive' | 'negative' | 'notice' | 'information' | 'neutral';
+
+type WidgetState = 'loading' | 'error' | 'ready';
+
+const statusBadgeColor = (status: string): BadgeColor => {
+  if (status === 'COLLECTING') return 'notice';
+  if (status === 'RUNNING') return 'information';
+  return 'neutral';
+};
+
+const VariantStats = ({ variant }: { variant: ExperimentVariant }): React.ReactElement => (
+  <Box
+    flex={1}
+    flexBasis={{ base: '100%', s: 'calc(50% - 6px)' }}
+    backgroundColor="surface.background.gray.intense"
+    borderRadius="medium"
+    padding="spacing.3"
+    display="flex"
+    flexDirection="column"
+    gap="spacing.2"
+  >
+    <Text variant="caption" size="small" color="surface.text.gray.subtle" truncateAfterLines={1}>
+      {variant.name}
+    </Text>
+    <Text variant="body" size="large" weight="semibold">
+      {variant.recovery_rate_percent}%
+    </Text>
+    <ProgressBar
+      type="meter"
+      variant="linear"
+      value={variant.recovery_rate_percent}
+      accessibilityLabel={`${variant.name} recovery rate ${variant.recovery_rate_percent}%`}
+    />
+    <Box display="flex" alignItems="baseline" gap="spacing.2" flexWrap="wrap">
+      <Text variant="caption" size="small" color="surface.text.gray.subtle">
+        {variant.recovered}/{variant.attempts} recovered
+      </Text>
+      <Amount value={variant.revenue_recovered} currency="INR" type="body" size="xsmall" />
+    </Box>
+  </Box>
+);
+
 export const ABExperimentWidget: React.FC<ABExperimentWidgetProps> = () => {
-  const [experiments, setExperiments] = useState<any[]>([]);
+  const [experiments, setExperiments] = useState<Experiment[]>([]);
+  const [state, setState] = useState<WidgetState>('loading');
 
   useEffect(() => {
-    fetch('http://localhost:8000/api/analytics/experiments')
-      .then((res) => res.json())
-      .then((data) => setExperiments(data))
-      .catch((err) => console.error(err));
+    let cancelled = false;
+    fetchExperiments()
+      .then((data: Experiment[]) => {
+        if (cancelled) return;
+        setExperiments(Array.isArray(data) ? data : []);
+        setState('ready');
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setState('error');
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  if (experiments.length === 0) return null;
+  // The synthetic-data disclosure comes from the API response — surfaced
+  // verbatim, never hardcoded in the UI.
+  const disclosures = Array.from(
+    new Set(experiments.map((exp) => exp.data_source).filter(Boolean)),
+  ) as string[];
 
   return (
-    <div className="bg-[var(--bg-card)] border border-[var(--border-main)] rounded-md p-5 space-y-4 shadow-xs">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-2">
-          <GitCompare className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-          <h3 className="text-xs font-semibold text-[var(--text-main)] uppercase tracking-wider">
-            Live A/B Strategy Performance Experiments (Section 8 / Strategy Optimization)
-          </h3>
-        </div>
-        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 font-semibold">
-          Active Experimentation
-        </span>
-      </div>
+    <Card padding="spacing.5" width="100%">
+      <CardHeader>
+        <CardHeaderLeading
+          title="Live A/B Strategy Performance Experiments"
+          subtitle="Section 8 / Strategy Optimization"
+          prefix={<CardHeaderIcon icon={TrendingUpIcon} />}
+          suffix={
+            state === 'ready' && experiments.length > 0 ? (
+              <CardHeaderCounter value={experiments.length} />
+            ) : undefined
+          }
+        />
+      </CardHeader>
+      <CardBody>
+        {state === 'loading' && (
+          <Spinner accessibilityLabel="Loading experiments" label="Loading experiments" color="primary" />
+        )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {experiments.map((exp) => (
-          <div
-            key={exp.experiment_id}
-            className="p-3.5 bg-[var(--bg-subtle)] border border-[var(--border-main)] rounded-md space-y-3"
-          >
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <span className="text-[10px] font-mono font-bold text-blue-600 dark:text-blue-400">{exp.experiment_id}</span>
-                <div className="text-xs font-semibold text-[var(--text-main)] mt-0.5">{exp.title}</div>
-              </div>
-              <span className="text-[10px] font-mono text-emerald-600 dark:text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded">
-                +{exp.lift_percent}% Lift
-              </span>
-            </div>
+        {state === 'error' && (
+          <Text variant="caption" size="small" color="surface.text.gray.subtle">
+            Experiments unavailable — the analytics service could not be reached.
+          </Text>
+        )}
 
-            {/* Variants Side-by-Side */}
-            <div className="grid grid-cols-2 gap-2 text-xs font-mono">
-              <div className="p-2.5 bg-[var(--bg-card)] rounded border border-[var(--border-main)] space-y-1">
-                <div className="text-[10px] text-[var(--text-muted)] truncate">{exp.variant_a.name}</div>
-                <div className="text-sm font-bold text-[var(--text-main)]">{exp.variant_a.recovery_rate_percent}%</div>
-                <div className="text-[10px] text-[var(--text-muted)]">
-                  {exp.variant_a.recovered}/{exp.variant_a.attempts} txns • ₹{Number(exp.variant_a.revenue_recovered).toLocaleString('en-IN')}
-                </div>
-              </div>
+        {state === 'ready' && experiments.length === 0 && (
+          <Text variant="caption" size="small" color="surface.text.gray.subtle">
+            No experiments reported by the analytics service yet.
+          </Text>
+        )}
 
-              <div className="p-2.5 bg-blue-500/5 rounded border border-blue-500/30 space-y-1">
-                <div className="text-[10px] text-blue-600 dark:text-blue-400 font-bold truncate">{exp.variant_b.name}</div>
-                <div className="text-sm font-bold text-emerald-600 dark:text-emerald-400">{exp.variant_b.recovery_rate_percent}%</div>
-                <div className="text-[10px] text-[var(--text-muted)]">
-                  {exp.variant_b.recovered}/{exp.variant_b.attempts} txns • ₹{Number(exp.variant_b.revenue_recovered).toLocaleString('en-IN')}
-                </div>
-              </div>
-            </div>
+        {state === 'ready' && experiments.length > 0 && (
+          <Box display="flex" flexDirection="column" gap="spacing.4">
+            <Box display="flex" flexWrap="wrap" gap="spacing.4">
+              {experiments.map((exp) => {
+                const hasBothCohorts = exp.variant_a.attempts > 0 && exp.variant_b.attempts > 0;
+                const liftColor: BadgeColor =
+                  exp.lift_percent > 0 ? 'positive' : exp.lift_percent < 0 ? 'negative' : 'neutral';
+                return (
+                  <Box
+                    key={exp.experiment_id}
+                    flex={1}
+                    flexBasis={{ base: '100%', m: 'calc(50% - 8px)' }}
+                    backgroundColor="surface.background.gray.subtle"
+                    borderRadius="medium"
+                    padding="spacing.4"
+                    display="flex"
+                    flexDirection="column"
+                    gap="spacing.3"
+                  >
+                    <Box
+                      display="flex"
+                      justifyContent="space-between"
+                      alignItems="flex-start"
+                      gap="spacing.3"
+                      flexWrap="wrap"
+                    >
+                      <Box display="flex" flexDirection="column" gap="spacing.1">
+                        <Box>
+                          <Code size="small">{exp.experiment_id}</Code>
+                        </Box>
+                        <Text variant="body" size="small" weight="semibold">
+                          {exp.title}
+                        </Text>
+                      </Box>
+                      <Box display="flex" gap="spacing.2" alignItems="center" flexWrap="wrap">
+                        <Badge size="small" color={statusBadgeColor(exp.status)}>
+                          {exp.status}
+                        </Badge>
+                        {hasBothCohorts && (
+                          <Badge
+                            size="small"
+                            color={liftColor}
+                            icon={
+                              exp.lift_percent > 0
+                                ? TrendingUpIcon
+                                : exp.lift_percent < 0
+                                ? TrendingDownIcon
+                                : undefined
+                            }
+                          >
+                            {`${exp.lift_percent > 0 ? '+' : ''}${exp.lift_percent}% lift`}
+                          </Badge>
+                        )}
+                      </Box>
+                    </Box>
 
-            <div className="text-[11px] text-[var(--text-muted)] font-sans flex items-start space-x-1.5 pt-1">
-              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
-              <span>{exp.conclusion}</span>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
+                    <Box display="flex" flexWrap="wrap" gap="spacing.3">
+                      <VariantStats variant={exp.variant_a} />
+                      <VariantStats variant={exp.variant_b} />
+                    </Box>
+
+                    {(exp.stat_significance_p_value != null || exp.chi2_statistic != null) && (
+                      <Box display="flex" gap="spacing.2" flexWrap="wrap">
+                        {exp.stat_significance_p_value != null && (
+                          <Code size="small">{`p = ${exp.stat_significance_p_value}`}</Code>
+                        )}
+                        {exp.chi2_statistic != null && (
+                          <Code size="small">{`chi² = ${exp.chi2_statistic}`}</Code>
+                        )}
+                      </Box>
+                    )}
+
+                    <Text variant="body" size="small" color="surface.text.gray.subtle">
+                      {exp.conclusion}
+                    </Text>
+                  </Box>
+                );
+              })}
+            </Box>
+
+            {disclosures.map((disclosure) => (
+              <Text
+                key={disclosure}
+                variant="caption"
+                size="small"
+                color="surface.text.gray.muted"
+              >
+                {disclosure}
+              </Text>
+            ))}
+          </Box>
+        )}
+      </CardBody>
+    </Card>
   );
 };

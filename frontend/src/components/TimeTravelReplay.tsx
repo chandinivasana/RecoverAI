@@ -1,275 +1,675 @@
 'use client';
 
 import React, { useState } from 'react';
-import { History, Play } from 'lucide-react';
+import {
+  ActionList,
+  ActionListItem,
+  ActivityIcon,
+  AlertTriangleIcon,
+  Amount,
+  Badge,
+  Box,
+  Button,
+  Card,
+  CardBody,
+  CardHeader,
+  CardHeaderBadge,
+  CardHeaderIcon,
+  CardHeaderLeading,
+  CardHeaderTrailing,
+  CheckCircleIcon,
+  Chip,
+  ChipGroup,
+  Code,
+  Dropdown,
+  DropdownOverlay,
+  EyeIcon,
+  FlagIcon,
+  Heading,
+  HistoryIcon,
+  PlayIcon,
+  RouteIcon,
+  SelectInput,
+  ShieldIcon,
+  StepGroup,
+  StepItem,
+  StepItemIcon,
+  Text,
+  TextArea,
+  TextInput,
+  useToast,
+} from '@razorpay/blade/components';
 import { runTimeTravelReplay } from '../lib/api';
 
-export const TimeTravelReplay: React.FC = () => {
-  const [amount, setAmount] = useState<number>(3499);
-  const [method, setMethod] = useState<string>('upi');
-  const [failureReason, setFailureReason] = useState<string>('Bank network timeout during UPI PIN authorization');
-  const [errorCode, setErrorCode] = useState<string>('GATEWAY_TIMEOUT');
-  const [retries, setRetries] = useState<number>(0);
-  const [riskScore, setRiskScore] = useState<number>(0.05);
+// ---- Local response types (shape of POST /api/replay) ----
 
-  const [replayData, setReplayData] = useState<any>(null);
+type StageAnalysis = {
+  failure_type?: string;
+  risk_level?: string;
+  summary?: string;
+};
+
+type StagePlanner = {
+  recommended_action?: string;
+  reason?: string;
+  recovery_probability?: number;
+  expected_net_recovery?: number;
+};
+
+type StageCritic = {
+  verdict?: string;
+  notes?: string;
+  suggested_override?: string | null;
+  override_applied?: boolean;
+  effective_action?: string;
+};
+
+type StagePolicy = {
+  action_evaluated?: string;
+  allowed?: boolean;
+  rule?: string;
+  reason?: string;
+  requires_escalation?: boolean;
+};
+
+type TraceInputs = {
+  amount?: number;
+  payment_method?: string;
+  failure_reason?: string;
+  error_code?: string;
+  retry_count?: number;
+};
+
+type ReplayTrace = {
+  inputs?: TraceInputs;
+  stage_1_analysis?: StageAnalysis;
+  stage_2_planner?: StagePlanner;
+  stage_3_critic?: StageCritic;
+  stage_4_policy?: StagePolicy;
+  final_outcome?: string;
+};
+
+type DeltaSummary = {
+  amount_diff?: number;
+  action_changed?: boolean;
+  policy_outcome_changed?: boolean;
+  explanation?: string;
+};
+
+type ReplayResponse = {
+  original_trace?: ReplayTrace;
+  replayed_trace?: ReplayTrace;
+  delta_summary?: DeltaSummary;
+};
+
+// ---- Presets ----
+
+type PresetKey = 'SAFE_UPI' | 'HIGH_TICKET' | 'FRAUD_ATTACK' | 'QUOTA_EXHAUST';
+
+const PRESETS: Record<
+  PresetKey,
+  {
+    label: string;
+    amount: string;
+    method: string;
+    failureReason: string;
+    errorCode: string;
+    retries: string;
+    riskScore: string;
+  }
+> = {
+  SAFE_UPI: {
+    label: '₹3.5k Safe UPI',
+    amount: '3499',
+    method: 'upi',
+    failureReason: 'Bank network timeout during UPI PIN authorization',
+    errorCode: 'GATEWAY_TIMEOUT',
+    retries: '0',
+    riskScore: '0.05',
+  },
+  HIGH_TICKET: {
+    label: '₹2.5L High-Ticket',
+    amount: '250000',
+    method: 'card',
+    failureReason: 'Bank network timeout during 3DS OTP validation',
+    errorCode: 'GATEWAY_TIMEOUT',
+    retries: '0',
+    riskScore: '0.12',
+  },
+  FRAUD_ATTACK: {
+    label: 'High Risk Fraud',
+    amount: '85000',
+    method: 'card',
+    failureReason: 'Unusual cross-border velocity pattern detected',
+    errorCode: 'FRAUD_SUSPECTED',
+    retries: '0',
+    riskScore: '0.92',
+  },
+  QUOTA_EXHAUST: {
+    label: 'Retry Quota Exhaust',
+    amount: '2500',
+    method: 'upi',
+    failureReason: 'Bank network timeout',
+    errorCode: 'GATEWAY_TIMEOUT',
+    retries: '2',
+    riskScore: '0.08',
+  },
+};
+
+const PAYMENT_METHODS = [
+  { value: 'upi', title: 'UPI (GPay / PhonePe / Paytm)' },
+  { value: 'card', title: 'Credit / Debit Card' },
+  { value: 'netbanking', title: 'NetBanking' },
+  { value: 'emi', title: 'Cardless EMI' },
+];
+
+const ERROR_CODES = [
+  'GATEWAY_TIMEOUT',
+  'BANK_NETWORK_DOWN',
+  'INSUFFICIENT_FUNDS',
+  'CARD_EXPIRED',
+  'FRAUD_SUSPECTED',
+  'UNKNOWN',
+];
+
+type StageColor = 'positive' | 'negative' | 'notice' | 'information' | 'neutral';
+
+const outcomeColor = (outcome?: string): StageColor => {
+  if (outcome === 'EXECUTE') return 'positive';
+  if (outcome === 'ESCALATE') return 'notice';
+  return 'neutral';
+};
+
+const TraceCard: React.FC<{ trace?: ReplayTrace; label: string; subtitle: string }> = ({
+  trace,
+  label,
+  subtitle,
+}) => {
+  if (!trace) return null;
+
+  const analysis = trace.stage_1_analysis ?? {};
+  const planner = trace.stage_2_planner ?? {};
+  const critic = trace.stage_3_critic ?? {};
+  const policy = trace.stage_4_policy ?? {};
+  const inputs = trace.inputs ?? {};
+
+  const criticColor: StageColor = critic.verdict === 'AGREE' ? 'positive' : 'negative';
+  const policyColor: StageColor = policy.allowed ? 'positive' : 'negative';
+  const finalColor = outcomeColor(trace.final_outcome);
+  const methodTitle =
+    PAYMENT_METHODS.find((m) => m.value === inputs.payment_method)?.title ??
+    String(inputs.payment_method ?? '—');
+
+  return (
+    <Box flex="1" minWidth="0px" display="flex" flexDirection="column">
+      <Card padding="spacing.5" width="100%" height="100%">
+        <CardHeader>
+        <CardHeaderLeading
+          title={label}
+          subtitle={subtitle}
+          prefix={<CardHeaderIcon icon={HistoryIcon} />}
+        />
+        <CardHeaderTrailing
+          visual={
+            <CardHeaderBadge color={finalColor}>
+              {String(trace.final_outcome ?? 'UNKNOWN')}
+            </CardHeaderBadge>
+          }
+        />
+      </CardHeader>
+      <CardBody>
+        <Box display="flex" flexDirection="column" gap="spacing.5">
+          <Box display="flex" flexWrap="wrap" alignItems="center" gap="spacing.3">
+            <Amount value={Number(inputs.amount ?? 0)} type="body" size="medium" weight="semibold" />
+            <Badge color="information">{methodTitle}</Badge>
+            <Code size="small">{String(inputs.error_code ?? '—')}</Code>
+            <Text size="xsmall" color="surface.text.gray.muted">
+              Retries: {Number(inputs.retry_count ?? 0)}
+            </Text>
+          </Box>
+
+          <StepGroup orientation="vertical" size="medium">
+            <StepItem
+              title="Stage 1 · Failure Analysis"
+              stepProgress="full"
+              marker={<StepItemIcon icon={ActivityIcon} color="information" />}
+              trailing={
+                <Badge color="information" size="small">
+                  {String(analysis.failure_type ?? '—')}
+                </Badge>
+              }
+            >
+              <Box display="flex" flexDirection="column" gap="spacing.2" paddingY="spacing.2">
+                <Text size="small">{String(analysis.summary ?? '—')}</Text>
+                <Text size="xsmall" color="surface.text.gray.muted">
+                  Risk level: {String(analysis.risk_level ?? '—')}
+                </Text>
+              </Box>
+            </StepItem>
+
+            <StepItem
+              title="Stage 2 · Recovery Planner"
+              stepProgress="full"
+              marker={<StepItemIcon icon={RouteIcon} color="information" />}
+              trailing={
+                <Badge color="information" size="small">
+                  {String(planner.recommended_action ?? '—')}
+                </Badge>
+              }
+            >
+              <Box display="flex" flexDirection="column" gap="spacing.2" paddingY="spacing.2">
+                <Text size="small">{String(planner.reason ?? '—')}</Text>
+                <Box display="flex" alignItems="center" gap="spacing.3" flexWrap="wrap">
+                  <Text size="xsmall" color="surface.text.gray.muted">
+                    Recovery probability:{' '}
+                    {Math.round(Number(planner.recovery_probability ?? 0) * 100)}%
+                  </Text>
+                  <Box display="flex" alignItems="center" gap="spacing.2">
+                    <Text size="xsmall" color="surface.text.gray.muted">
+                      Expected net recovery:
+                    </Text>
+                    <Amount
+                      value={Number(planner.expected_net_recovery ?? 0)}
+                      type="body"
+                      size="xsmall"
+                      weight="semibold"
+                    />
+                  </Box>
+                </Box>
+              </Box>
+            </StepItem>
+
+            <StepItem
+              title="Stage 3 · Critic Review"
+              stepProgress="full"
+              marker={<StepItemIcon icon={EyeIcon} color={criticColor} />}
+              trailing={
+                <Badge color={criticColor} size="small">
+                  {String(critic.verdict ?? '—')}
+                </Badge>
+              }
+            >
+              <Box display="flex" flexDirection="column" gap="spacing.2" paddingY="spacing.2">
+                <Text size="small">{String(critic.notes ?? '—')}</Text>
+                <Box display="flex" alignItems="center" gap="spacing.2" flexWrap="wrap">
+                  {critic.override_applied ? (
+                    <Badge color="notice" size="small" icon={AlertTriangleIcon}>
+                      Override applied
+                    </Badge>
+                  ) : (
+                    <Badge color="neutral" size="small">
+                      No override
+                    </Badge>
+                  )}
+                  <Text size="xsmall" color="surface.text.gray.muted">
+                    Effective action:
+                  </Text>
+                  <Code size="small">{String(critic.effective_action ?? '—')}</Code>
+                </Box>
+              </Box>
+            </StepItem>
+
+            <StepItem
+              title="Stage 4 · Policy Engine"
+              stepProgress="full"
+              marker={<StepItemIcon icon={ShieldIcon} color={policyColor} />}
+              trailing={
+                <Badge color={policyColor} size="small">
+                  {policy.allowed ? 'APPROVED' : 'BLOCKED'}
+                </Badge>
+              }
+            >
+              <Box display="flex" flexDirection="column" gap="spacing.2" paddingY="spacing.2">
+                <Box display="flex" alignItems="center" gap="spacing.2" flexWrap="wrap">
+                  <Text size="xsmall" color="surface.text.gray.muted">
+                    Action evaluated:
+                  </Text>
+                  <Code size="small">{String(policy.action_evaluated ?? '—')}</Code>
+                  <Text size="xsmall" color="surface.text.gray.muted">
+                    Rule:
+                  </Text>
+                  <Code size="small">{String(policy.rule ?? '—')}</Code>
+                </Box>
+                <Text size="small">{String(policy.reason ?? '—')}</Text>
+              </Box>
+            </StepItem>
+
+            <StepItem
+              title="Final Outcome"
+              stepProgress="end"
+              marker={<StepItemIcon icon={FlagIcon} color={finalColor} />}
+              trailing={
+                <Badge color={finalColor} size="small">
+                  {String(trace.final_outcome ?? 'UNKNOWN')}
+                </Badge>
+              }
+            />
+          </StepGroup>
+        </Box>
+      </CardBody>
+      </Card>
+    </Box>
+  );
+};
+
+export const TimeTravelReplay: React.FC = () => {
+  const [amount, setAmount] = useState<string>(PRESETS.SAFE_UPI.amount);
+  const [method, setMethod] = useState<string>(PRESETS.SAFE_UPI.method);
+  const [failureReason, setFailureReason] = useState<string>(PRESETS.SAFE_UPI.failureReason);
+  const [errorCode, setErrorCode] = useState<string>(PRESETS.SAFE_UPI.errorCode);
+  const [retries, setRetries] = useState<string>(PRESETS.SAFE_UPI.retries);
+  const [riskScore, setRiskScore] = useState<string>(PRESETS.SAFE_UPI.riskScore);
+  const [preset, setPreset] = useState<string>('SAFE_UPI');
+
+  const [replayData, setReplayData] = useState<ReplayResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  const toast = useToast();
+
+  const loadPreset = (key: PresetKey) => {
+    const p = PRESETS[key];
+    setAmount(p.amount);
+    setMethod(p.method);
+    setFailureReason(p.failureReason);
+    setErrorCode(p.errorCode);
+    setRetries(p.retries);
+    setRiskScore(p.riskScore);
+    setPreset(key);
+  };
 
   const handleRunReplay = async () => {
+    const parsedAmount = Number(amount);
+    const parsedRetries = Number(retries);
+    const parsedRisk = Number(riskScore);
+    if (!Number.isFinite(parsedAmount) || !Number.isFinite(parsedRetries) || !Number.isFinite(parsedRisk)) {
+      toast.show({
+        content: 'Amount, retry count and risk score must be valid numbers',
+        color: 'negative',
+      });
+      return;
+    }
+
     setLoading(true);
     try {
-      const res = await runTimeTravelReplay({
-        override_amount: amount,
+      const res = (await runTimeTravelReplay({
+        override_amount: parsedAmount,
         override_payment_method: method,
         override_failure_reason: failureReason,
         override_error_code: errorCode,
-        override_retry_count: retries,
-        override_risk_score: riskScore,
-      });
+        override_retry_count: parsedRetries,
+        override_risk_score: parsedRisk,
+      })) as ReplayResponse;
       setReplayData(res);
     } catch (err) {
-      alert('Replay failed: ' + err);
+      toast.show({
+        content: `Replay failed: ${err instanceof Error ? err.message : String(err)}`,
+        color: 'negative',
+      });
     } finally {
       setLoading(false);
     }
   };
 
-  const loadPreset = (preset: 'SAFE_UPI' | 'HIGH_TICKET' | 'FRAUD_ATTACK' | 'QUOTA_EXHAUST') => {
-    if (preset === 'SAFE_UPI') {
-      setAmount(3499);
-      setMethod('upi');
-      setFailureReason('Bank network timeout during UPI PIN authorization');
-      setErrorCode('GATEWAY_TIMEOUT');
-      setRetries(0);
-      setRiskScore(0.05);
-    } else if (preset === 'HIGH_TICKET') {
-      setAmount(250000);
-      setMethod('card');
-      setFailureReason('Bank network timeout during 3DS OTP validation');
-      setErrorCode('GATEWAY_TIMEOUT');
-      setRetries(0);
-      setRiskScore(0.12);
-    } else if (preset === 'FRAUD_ATTACK') {
-      setAmount(85000);
-      setMethod('card');
-      setFailureReason('Unusual cross-border velocity pattern detected');
-      setErrorCode('FRAUD_SUSPECTED');
-      setRetries(0);
-      setRiskScore(0.92);
-    } else if (preset === 'QUOTA_EXHAUST') {
-      setAmount(2500);
-      setMethod('upi');
-      setFailureReason('Bank network timeout');
-      setErrorCode('GATEWAY_TIMEOUT');
-      setRetries(2);
-      setRiskScore(0.08);
-    }
-  };
+  const original = replayData?.original_trace;
+  const replayed = replayData?.replayed_trace;
+  const delta = replayData?.delta_summary;
+
+  const criticFlipped =
+    Boolean(replayData) && original?.stage_3_critic?.verdict !== replayed?.stage_3_critic?.verdict;
+  const outcomeFlipped =
+    Boolean(replayData) && original?.final_outcome !== replayed?.final_outcome;
+  const anyChange = Boolean(
+    delta?.action_changed || delta?.policy_outcome_changed || criticFlipped || outcomeFlipped,
+  );
+  const amountDiff = Number(delta?.amount_diff ?? 0);
 
   return (
-    <div className="space-y-4">
-      {/* Header */}
-      <div className="bg-[var(--bg-card)] border border-[var(--border-main)] p-4 rounded-md flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-xs">
-        <div>
-          <h2 className="text-xs font-semibold text-[var(--text-main)] uppercase tracking-wider">
-            Time-Travel Decision Debugger (Section 35)
-          </h2>
-          <p className="text-[11px] text-[var(--text-muted)] mt-0.5">
-            Modify input parameters to observe deterministic policy reactions and action routing
-          </p>
-        </div>
-
-        {/* Presets */}
-        <div className="flex items-center space-x-1.5">
-          <span className="text-[11px] text-[var(--text-muted)] font-mono mr-1">Presets:</span>
-          <button
-            onClick={() => loadPreset('SAFE_UPI')}
-            className="px-2.5 py-1 text-xs font-mono rounded-md bg-[var(--bg-subtle)] border border-[var(--border-main)] hover:bg-[var(--border-main)] text-[var(--text-main)] transition-colors cursor-pointer"
+    <Box display="flex" flexDirection="column" gap="spacing.5">
+      {/* Header + presets */}
+      <Card padding="spacing.5">
+        <CardBody>
+          <Box
+            display="flex"
+            flexDirection={{ base: 'column', m: 'row' }}
+            justifyContent="space-between"
+            alignItems={{ base: 'stretch', m: 'center' }}
+            gap="spacing.4"
           >
-            ₹3.5k UPI
-          </button>
-          <button
-            onClick={() => loadPreset('HIGH_TICKET')}
-            className="px-2.5 py-1 text-xs font-mono rounded-md bg-[var(--bg-subtle)] border border-[var(--border-main)] hover:bg-[var(--border-main)] text-amber-600 dark:text-amber-300 font-semibold transition-colors cursor-pointer"
-          >
-            ₹2.5L High-Ticket
-          </button>
-          <button
-            onClick={() => loadPreset('FRAUD_ATTACK')}
-            className="px-2.5 py-1 text-xs font-mono rounded-md bg-[var(--bg-subtle)] border border-[var(--border-main)] hover:bg-[var(--border-main)] text-rose-600 dark:text-rose-300 font-semibold transition-colors cursor-pointer"
-          >
-            High Risk
-          </button>
-        </div>
-      </div>
-
-      {/* Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-        {/* Inputs */}
-        <div className="lg:col-span-4 bg-[var(--bg-card)] border border-[var(--border-main)] rounded-md p-4 space-y-3 shadow-xs">
-          <h3 className="text-xs font-semibold text-[var(--text-main)] uppercase tracking-wider">
-            Transaction Parameters
-          </h3>
-
-          <div className="space-y-2.5 text-xs">
-            <div>
-              <label className="block text-[11px] text-[var(--text-muted)] mb-1">Transaction Amount (INR)</label>
-              <input
-                type="number"
-                value={amount}
-                onChange={(e) => setAmount(Number(e.target.value))}
-                className="w-full bg-[var(--bg-input)] border border-[var(--border-main)] rounded-md px-2.5 py-1.5 text-[var(--text-main)] font-mono focus:border-blue-500 focus:outline-none"
-              />
-            </div>
-
-            <div>
-              <label className="block text-[11px] text-[var(--text-muted)] mb-1">Payment Method</label>
-              <select
-                value={method}
-                onChange={(e) => setMethod(e.target.value)}
-                className="w-full bg-[var(--bg-input)] border border-[var(--border-main)] rounded-md px-2.5 py-1.5 text-[var(--text-main)] focus:border-blue-500 focus:outline-none font-mono text-xs"
-              >
-                <option value="upi">UPI (GPay / PhonePe / Paytm)</option>
-                <option value="card">Credit / Debit Card</option>
-                <option value="netbanking">NetBanking</option>
-                <option value="emi">Cardless EMI</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-[11px] text-[var(--text-muted)] mb-1">Failure Reason Diagnostic</label>
-              <textarea
-                value={failureReason}
-                rows={2}
-                onChange={(e) => setFailureReason(e.target.value)}
-                className="w-full bg-[var(--bg-input)] border border-[var(--border-main)] rounded-md px-2.5 py-1.5 text-[var(--text-main)] focus:border-blue-500 focus:outline-none text-xs"
-              />
-            </div>
-
-            <div>
-              <label className="block text-[11px] text-[var(--text-muted)] mb-1">Error Code</label>
-              <select
-                value={errorCode}
-                onChange={(e) => setErrorCode(e.target.value)}
-                className="w-full bg-[var(--bg-input)] border border-[var(--border-main)] rounded-md px-2.5 py-1.5 text-[var(--text-main)] font-mono focus:border-blue-500 focus:outline-none text-xs"
-              >
-                <option value="GATEWAY_TIMEOUT">GATEWAY_TIMEOUT</option>
-                <option value="BANK_NETWORK_DOWN">BANK_NETWORK_DOWN</option>
-                <option value="INSUFFICIENT_FUNDS">INSUFFICIENT_FUNDS</option>
-                <option value="CARD_EXPIRED">CARD_EXPIRED</option>
-                <option value="FRAUD_SUSPECTED">FRAUD_SUSPECTED</option>
-                <option value="UNKNOWN">UNKNOWN</option>
-              </select>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="block text-[11px] text-[var(--text-muted)] mb-1">Retry Count</label>
-                <input
-                  type="number"
-                  min="0"
-                  max="5"
-                  value={retries}
-                  onChange={(e) => setRetries(Number(e.target.value))}
-                  className="w-full bg-[var(--bg-input)] border border-[var(--border-main)] rounded-md px-2.5 py-1.5 text-[var(--text-main)] font-mono focus:border-blue-500 focus:outline-none"
-                />
-              </div>
-              <div>
-                <label className="block text-[11px] text-[var(--text-muted)] mb-1">Risk Score (0–1)</label>
-                <input
-                  type="number"
-                  step="0.05"
-                  min="0"
-                  max="1"
-                  value={riskScore}
-                  onChange={(e) => setRiskScore(Number(e.target.value))}
-                  className="w-full bg-[var(--bg-input)] border border-[var(--border-main)] rounded-md px-2.5 py-1.5 text-[var(--text-main)] font-mono focus:border-blue-500 focus:outline-none"
-                />
-              </div>
-            </div>
-
-            <button
-              onClick={handleRunReplay}
-              disabled={loading}
-              className="w-full mt-2 py-2 rounded-md text-xs font-medium bg-[#0066F5] hover:bg-blue-600 text-white transition-colors flex items-center justify-center space-x-1.5 disabled:opacity-50 cursor-pointer shadow-xs"
+            <Box display="flex" flexDirection="column" gap="spacing.1">
+              <Heading size="small">Time-Travel Decision Debugger (Section 35)</Heading>
+              <Text size="small" color="surface.text.gray.muted">
+                Modify input parameters to observe deterministic policy reactions and action routing
+              </Text>
+            </Box>
+            <ChipGroup
+              label="Presets"
+              accessibilityLabel="Load a preset replay scenario"
+              selectionType="single"
+              size="small"
+              value={preset}
+              onChange={({ values }) => {
+                const key = values[0] as PresetKey | undefined;
+                if (key && PRESETS[key]) {
+                  loadPreset(key);
+                } else {
+                  setPreset('');
+                }
+              }}
             >
-              <Play className="w-3.5 h-3.5" />
-              <span>{loading ? 'Evaluating...' : 'Run Decision Pipeline'}</span>
-            </button>
-          </div>
-        </div>
+              <Box display="flex" gap="spacing.2" flexWrap="wrap">
+                <Chip value="SAFE_UPI">{PRESETS.SAFE_UPI.label}</Chip>
+                <Chip value="HIGH_TICKET">{PRESETS.HIGH_TICKET.label}</Chip>
+                <Chip value="FRAUD_ATTACK" color="negative">
+                  {PRESETS.FRAUD_ATTACK.label}
+                </Chip>
+                <Chip value="QUOTA_EXHAUST">{PRESETS.QUOTA_EXHAUST.label}</Chip>
+              </Box>
+            </ChipGroup>
+          </Box>
+        </CardBody>
+      </Card>
 
-        {/* Pipeline Output */}
-        <div className="lg:col-span-8 space-y-3">
-          {replayData ? (
-            <div className="space-y-3">
-              {/* Summary */}
-              <div className="p-3 bg-[var(--bg-card)] border border-[var(--border-main)] rounded-md flex items-center justify-between shadow-xs">
-                <div className="text-xs font-sans text-[var(--text-main)]">
-                  {replayData.delta_summary.explanation}
-                </div>
-                <span
-                  className={`px-2 py-0.5 text-xs font-mono font-bold rounded ${
-                    replayData.replayed_trace.final_outcome === 'EXECUTE'
-                      ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
-                      : replayData.replayed_trace.final_outcome === 'ESCALATE'
-                      ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'
-                      : 'bg-[var(--bg-subtle)] text-[var(--text-muted)]'
-                  }`}
+      {/* Inputs + results */}
+      <Box display="flex" flexDirection={{ base: 'column', l: 'row' }} gap="spacing.5">
+        {/* Transaction parameters */}
+        <Box flexShrink={0} width={{ base: '100%', l: '360px' }}>
+          <Card padding="spacing.5">
+            <CardHeader>
+              <CardHeaderLeading
+                title="Transaction Parameters"
+                prefix={<CardHeaderIcon icon={ActivityIcon} />}
+              />
+            </CardHeader>
+            <CardBody>
+              <Box display="flex" flexDirection="column" gap="spacing.4">
+                <TextInput
+                  label="Transaction Amount"
+                  type="number"
+                  prefix="₹"
+                  value={amount}
+                  onChange={({ value }) => {
+                    setAmount(value ?? '');
+                    setPreset('');
+                  }}
+                />
+
+                <Dropdown selectionType="single">
+                  <SelectInput
+                    label="Payment Method"
+                    value={method}
+                    onChange={({ values }) => {
+                      setMethod(values[0] ?? 'upi');
+                      setPreset('');
+                    }}
+                  />
+                  <DropdownOverlay>
+                    <ActionList>
+                      {PAYMENT_METHODS.map((m) => (
+                        <ActionListItem key={m.value} title={m.title} value={m.value} />
+                      ))}
+                    </ActionList>
+                  </DropdownOverlay>
+                </Dropdown>
+
+                <TextArea
+                  label="Failure Reason Diagnostic"
+                  numberOfLines={2}
+                  value={failureReason}
+                  onChange={({ value }) => {
+                    setFailureReason(value ?? '');
+                    setPreset('');
+                  }}
+                />
+
+                <Dropdown selectionType="single">
+                  <SelectInput
+                    label="Error Code"
+                    value={errorCode}
+                    onChange={({ values }) => {
+                      setErrorCode(values[0] ?? 'UNKNOWN');
+                      setPreset('');
+                    }}
+                  />
+                  <DropdownOverlay>
+                    <ActionList>
+                      {ERROR_CODES.map((code) => (
+                        <ActionListItem key={code} title={code} value={code} />
+                      ))}
+                    </ActionList>
+                  </DropdownOverlay>
+                </Dropdown>
+
+                <Box display="flex" gap="spacing.3">
+                  <Box flex="1">
+                    <TextInput
+                      label="Retry Count"
+                      type="number"
+                      value={retries}
+                      onChange={({ value }) => {
+                        setRetries(value ?? '');
+                        setPreset('');
+                      }}
+                    />
+                  </Box>
+                  <Box flex="1">
+                    <TextInput
+                      label="Risk Score (0–1)"
+                      type="number"
+                      value={riskScore}
+                      onChange={({ value }) => {
+                        setRiskScore(value ?? '');
+                        setPreset('');
+                      }}
+                    />
+                  </Box>
+                </Box>
+
+                <Button
+                  icon={PlayIcon}
+                  iconPosition="left"
+                  isFullWidth
+                  isLoading={loading}
+                  onClick={handleRunReplay}
                 >
-                  Outcome: {replayData.replayed_trace.final_outcome}
-                </span>
-              </div>
+                  Run Decision Pipeline
+                </Button>
+              </Box>
+            </CardBody>
+          </Card>
+        </Box>
 
-              {/* Stage 1 */}
-              <div className="bg-[var(--bg-card)] border border-[var(--border-main)] rounded-md p-3 text-xs space-y-1.5 shadow-xs">
-                <div className="flex items-center justify-between text-[10px] font-mono uppercase text-[var(--text-muted)] pb-1 border-b border-[var(--border-main)]">
-                  <span>Stage 1: Failure Diagnostic Analysis</span>
-                  <span className="text-[var(--text-main)] font-semibold">{replayData.replayed_trace.stage_1_analysis.failure_type}</span>
-                </div>
-                <p className="text-[var(--text-main)] text-[11px]">{replayData.replayed_trace.stage_1_analysis.summary}</p>
-              </div>
+        {/* Pipeline output */}
+        <Box flex="1" minWidth="0px" display="flex" flexDirection="column" gap="spacing.5">
+          {replayData ? (
+            <Box display="flex" flexDirection="column" gap="spacing.5">
+              {/* Delta summary */}
+              <Card padding="spacing.5">
+                <CardBody>
+                  <Box display="flex" flexDirection="column" gap="spacing.3">
+                    <Box display="flex" alignItems="center" gap="spacing.3" flexWrap="wrap">
+                      <Heading size="small">Replay Delta</Heading>
+                      {delta?.action_changed && (
+                        <Badge color="notice" icon={AlertTriangleIcon}>
+                          Planner action flipped
+                        </Badge>
+                      )}
+                      {criticFlipped && (
+                        <Badge color="notice" icon={EyeIcon}>
+                          Critic verdict flipped
+                        </Badge>
+                      )}
+                      {delta?.policy_outcome_changed && (
+                        <Badge color="negative" icon={ShieldIcon}>
+                          Policy decision flipped
+                        </Badge>
+                      )}
+                      {outcomeFlipped && (
+                        <Badge color="negative" icon={FlagIcon}>
+                          {`Outcome: ${original?.final_outcome ?? '—'} → ${
+                            replayed?.final_outcome ?? '—'
+                          }`}
+                        </Badge>
+                      )}
+                      {!anyChange && (
+                        <Badge color="neutral" icon={CheckCircleIcon}>
+                          No decision changes
+                        </Badge>
+                      )}
+                    </Box>
+                    {delta?.explanation && (
+                      <Text size="small" color="surface.text.gray.muted">
+                        {delta.explanation}
+                      </Text>
+                    )}
+                    {amountDiff !== 0 && (
+                      <Box display="flex" alignItems="center" gap="spacing.2">
+                        <Text size="small" weight="medium">
+                          Amount delta: {amountDiff > 0 ? '+' : '−'}
+                        </Text>
+                        <Amount
+                          value={Math.abs(amountDiff)}
+                          type="body"
+                          size="small"
+                          weight="semibold"
+                        />
+                      </Box>
+                    )}
+                  </Box>
+                </CardBody>
+              </Card>
 
-              {/* Stage 2 */}
-              <div className="bg-[var(--bg-card)] border border-[var(--border-main)] rounded-md p-3 text-xs space-y-1.5 shadow-xs">
-                <div className="flex items-center justify-between text-[10px] font-mono uppercase text-[var(--text-muted)] pb-1 border-b border-[var(--border-main)]">
-                  <span>Stage 2: Recovery Strategy Recommendation</span>
-                  <span className="text-purple-600 dark:text-purple-400 font-bold">{replayData.replayed_trace.stage_2_planner.recommended_action}</span>
-                </div>
-                <p className="text-[var(--text-main)] text-[11px]">{replayData.replayed_trace.stage_2_planner.reason}</p>
-                <div className="text-[10px] font-mono text-[var(--text-muted)] flex space-x-3 pt-1">
-                  <span>Prob: {Math.round(replayData.replayed_trace.stage_2_planner.recovery_probability * 100)}%</span>
-                  <span>Expected: ₹{Number(replayData.replayed_trace.stage_2_planner.expected_net_recovery).toLocaleString('en-IN')}</span>
-                </div>
-              </div>
-
-              {/* Stage 4: Policy Hard Boundary */}
-              <div className={`p-3 rounded-md border text-xs space-y-1.5 shadow-xs ${
-                replayData.replayed_trace.stage_4_policy.allowed
-                  ? 'bg-emerald-500/5 border-emerald-500/20'
-                  : 'bg-rose-500/5 border-rose-500/20'
-              }`}>
-                <div className="flex items-center justify-between text-[10px] font-mono uppercase pb-1 border-b border-[var(--border-main)]">
-                  <span className="font-semibold text-[var(--text-main)]">Stage 4: Deterministic Policy Engine</span>
-                  <span className={replayData.replayed_trace.stage_4_policy.allowed ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-rose-600 dark:text-rose-400 font-bold'}>
-                    {replayData.replayed_trace.stage_4_policy.allowed ? 'APPROVED' : 'BLOCKED'}
-                  </span>
-                </div>
-                <div className="font-mono text-[11px] text-[var(--text-muted)]">
-                  Rule: {replayData.replayed_trace.stage_4_policy.rule}
-                </div>
-                <p className="text-[11px] text-[var(--text-main)]">
-                  {replayData.replayed_trace.stage_4_policy.reason}
-                </p>
-              </div>
-            </div>
+              {/* Original vs replayed traces */}
+              <Box display="flex" flexDirection={{ base: 'column', m: 'row' }} gap="spacing.5">
+                <TraceCard
+                  trace={original}
+                  label="Original Trace"
+                  subtitle="Baseline pipeline decision"
+                />
+                <TraceCard
+                  trace={replayed}
+                  label="Replayed Trace"
+                  subtitle="Pipeline decision with modified inputs"
+                />
+              </Box>
+            </Box>
           ) : (
-            <div className="bg-[var(--bg-card)] border border-dashed border-[var(--border-main)] rounded-md p-10 text-center text-xs text-[var(--text-muted)] font-mono">
-              Execute replay to inspect pipeline stages
-            </div>
+            <Box
+              borderWidth="thin"
+              borderStyle="dashed"
+              borderColor="surface.border.gray.normal"
+              borderRadius="medium"
+              padding="spacing.10"
+              display="flex"
+              alignItems="center"
+              justifyContent="center"
+              minHeight="240px"
+            >
+              <Text size="small" color="surface.text.gray.muted" textAlign="center">
+                Run the decision pipeline to inspect the original vs replayed stage traces
+              </Text>
+            </Box>
           )}
-        </div>
-      </div>
-    </div>
+        </Box>
+      </Box>
+    </Box>
   );
 };

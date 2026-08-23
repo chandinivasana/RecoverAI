@@ -1,7 +1,32 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import { X, Smartphone, FileText, Shield, CheckCircle2 } from 'lucide-react';
+import React, { useCallback, useEffect, useState } from 'react';
+import {
+  Drawer,
+  DrawerHeader,
+  DrawerBody,
+  DrawerFooter,
+  Box,
+  Amount,
+  Badge,
+  Button,
+  Text,
+  Heading,
+  Code,
+  Divider,
+  Spinner,
+  Alert,
+  useToast,
+  StepGroup,
+  StepItem,
+  StepItemIndicator,
+  FileTextIcon,
+  SmartphoneIcon,
+  CheckIcon,
+  ClockIcon,
+  AlertTriangleIcon,
+  ZapIcon,
+} from '@razorpay/blade/components';
 import { fetchPaymentDetail, processFullRecovery } from '../lib/api';
 import { CustomerRecoveryModal } from './CustomerRecoveryModal';
 import { AuditReportModal } from './AuditReportModal';
@@ -12,26 +37,241 @@ interface TransactionModalProps {
   onProcessed?: () => void;
 }
 
+type StatusFeedbackColor = 'positive' | 'negative' | 'notice' | 'information' | 'neutral';
+
+type CurrencyCode = React.ComponentProps<typeof Amount>['currency'];
+
+const toCurrency = (currency?: string): CurrencyCode => (currency as CurrencyCode) || 'INR';
+
+interface PaymentMetadata {
+  past_successful_payments?: number;
+  has_messaging_consent?: boolean;
+  [key: string]: unknown;
+}
+
+interface PaymentSummary {
+  payment_id: string;
+  customer_id?: string;
+  customer_name?: string;
+  customer_email?: string;
+  customer_phone?: string;
+  amount: number;
+  currency?: string;
+  payment_method?: string;
+  status?: string;
+  failure_reason?: string;
+  error_code?: string;
+  retry_count?: number;
+  amount_recovered?: number;
+  risk_score?: number;
+  metadata?: PaymentMetadata;
+  created_at?: string;
+  updated_at?: string;
+}
+
+interface RecoveryDecision {
+  decision_id?: string;
+  failure_type?: string;
+  recommended_action?: string;
+  recovery_probability?: number;
+  risk_level?: string;
+  expected_net_recovery?: number;
+  action_cost?: number;
+  reason?: string;
+  signals?: Record<string, unknown>;
+  critic_verdict?: string | null;
+  critic_notes?: string | null;
+  created_at?: string;
+}
+
+interface RecoveryExecution {
+  execution_id?: string;
+  action?: string;
+  status?: string;
+  result?: string;
+  amount_recovered?: number;
+  details?: { predicted_probability?: number; [key: string]: unknown };
+  executed_at?: string;
+}
+
+interface AuditEntry {
+  audit_id?: string;
+  event_type?: string;
+  actor?: string;
+  metadata?: Record<string, unknown>;
+  timestamp?: string;
+  prev_hash?: string | null;
+  entry_hash?: string | null;
+}
+
+interface HumanReview {
+  review_id?: string;
+  status?: string;
+  reason?: string;
+  risk_level?: string;
+  reviewer?: string | null;
+  review_notes?: string | null;
+  proposed_action?: string;
+  created_at?: string;
+  resolved_at?: string | null;
+}
+
+interface PaymentDetail {
+  payment: PaymentSummary;
+  decisions?: RecoveryDecision[];
+  executions?: RecoveryExecution[];
+  audit_trail?: AuditEntry[];
+  human_reviews?: HumanReview[];
+}
+
+const statusColor = (status?: string): StatusFeedbackColor => {
+  switch (status) {
+    case 'recovered':
+      return 'positive';
+    case 'failed':
+      return 'negative';
+    case 'escalated_to_human':
+      return 'notice';
+    case 'processing_recovery':
+      return 'information';
+    // stopped / permanently_failed → neutral gray
+    default:
+      return 'neutral';
+  }
+};
+
+const statusIcon = (status?: string) => {
+  switch (status) {
+    case 'recovered':
+      return CheckIcon;
+    case 'failed':
+      return AlertTriangleIcon;
+    case 'escalated_to_human':
+    case 'processing_recovery':
+      return ClockIcon;
+    default:
+      return undefined;
+  }
+};
+
+const executionColor = (status?: string): StatusFeedbackColor => {
+  if (!status) return 'neutral';
+  const s = status.toUpperCase();
+  if (s === 'SUCCESS') return 'positive';
+  if (s.includes('FAIL')) return 'negative';
+  return 'notice';
+};
+
+const reviewColor = (status?: string): StatusFeedbackColor => {
+  switch ((status || '').toLowerCase()) {
+    case 'approved':
+      return 'positive';
+    case 'rejected':
+      return 'negative';
+    case 'pending':
+      return 'notice';
+    default:
+      return 'neutral';
+  }
+};
+
+const auditEventColor = (eventType?: string): StatusFeedbackColor => {
+  const e = (eventType || '').toUpperCase();
+  if (e.includes('REFUS') || e.includes('BLOCK') || e.includes('FAIL')) return 'negative';
+  if (e.includes('RECOVER') || e.includes('SUCCESS') || e.includes('APPROV')) return 'positive';
+  if (e.includes('ESCALAT') || e.includes('REVIEW')) return 'notice';
+  return 'information';
+};
+
+const humanizeStatus = (status?: string): string => (status ? status.replace(/_/g, ' ') : 'unknown');
+
+const truncateHash = (hash: string): string =>
+  hash.length > 18 ? `${hash.slice(0, 10)}…${hash.slice(-6)}` : hash;
+
+const auditDescription = (metadata?: Record<string, unknown>): string => {
+  if (!metadata) return '';
+  const candidate = metadata.reason ?? metadata.result ?? metadata.rule;
+  if (typeof candidate === 'string') return candidate;
+  try {
+    return JSON.stringify(metadata);
+  } catch {
+    return '';
+  }
+};
+
+const formatTimestamp = (value?: string): string => {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+};
+
+const SectionHeading = ({ children }: { children: React.ReactNode }) => (
+  <Heading size="small" weight="semibold" marginBottom="spacing.4">
+    {children}
+  </Heading>
+);
+
+const KeyValueGrid = ({ children }: { children: React.ReactNode }) => (
+  <Box display="grid" gridTemplateColumns="160px 1fr" gap="spacing.3" alignItems="center">
+    {children}
+  </Box>
+);
+
+const KeyValueItem = ({ label, children }: { label: string; children: React.ReactNode }) => (
+  <>
+    <Text variant="body" size="small" color="surface.text.gray.muted">
+      {label}
+    </Text>
+    <Box>{children}</Box>
+  </>
+);
+
+const SectionCard = ({ children }: { children: React.ReactNode }) => (
+  <Box
+    padding="spacing.4"
+    backgroundColor="surface.background.gray.subtle"
+    borderRadius="medium"
+    borderWidth="thin"
+    borderColor="surface.border.gray.muted"
+    display="flex"
+    flexDirection="column"
+    gap="spacing.3"
+  >
+    {children}
+  </Box>
+);
+
 export const TransactionModal: React.FC<TransactionModalProps> = ({ paymentId, onClose, onProcessed }) => {
-  const [data, setData] = useState<any>(null);
+  const [data, setData] = useState<PaymentDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [showCustomerModal, setShowCustomerModal] = useState(false);
   const [showAuditModal, setShowAuditModal] = useState(false);
+  const toast = useToast();
 
-  const loadDetails = () => {
-    if (paymentId) {
-      setLoading(true);
-      fetchPaymentDetail(paymentId)
-        .then((res) => setData(res))
-        .catch((err) => console.error(err))
-        .finally(() => setLoading(false));
-    }
-  };
+  const loadDetails = useCallback(() => {
+    if (!paymentId) return;
+    setLoading(true);
+    fetchPaymentDetail(paymentId)
+      .then((res: PaymentDetail) => setData(res))
+      .catch(() => {
+        toast.show({ content: 'Failed to load payment details', color: 'negative' });
+      })
+      .finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paymentId]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial detail fetch; setters run post-await
     loadDetails();
-  }, [paymentId]);
+  }, [loadDetails]);
 
   if (!paymentId) return null;
 
@@ -39,218 +279,492 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({ paymentId, o
     setProcessing(true);
     try {
       await processFullRecovery(paymentId);
+      toast.show({ content: 'Recovery pipeline completed', color: 'positive', autoDismiss: true });
       loadDetails();
       if (onProcessed) onProcessed();
     } catch (err) {
-      alert('Recovery execution failed: ' + err);
+      const message = err instanceof Error ? err.message : String(err);
+      toast.show({ content: `Recovery execution failed: ${message}`, color: 'negative' });
     } finally {
       setProcessing(false);
     }
   };
 
+  const payment = data?.payment;
+  const decisions = data?.decisions ?? [];
+  const executions = data?.executions ?? [];
+  const auditTrail = data?.audit_trail ?? [];
+  const humanReviews = data?.human_reviews ?? [];
+  const consent = payment?.metadata?.has_messaging_consent;
+  const StatusBadgeIcon = statusIcon(payment?.status);
+
   return (
     <>
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4">
-        <div className="bg-[var(--bg-card)] border border-[var(--border-main)] rounded-md w-full max-w-3xl max-h-[85vh] flex flex-col shadow-xl overflow-hidden font-sans">
-          {/* Header */}
-          <div className="flex items-center justify-between px-5 py-3.5 border-b border-[var(--border-main)] bg-[var(--bg-subtle)]">
-            <div className="flex items-center space-x-2.5">
-              <span className="font-mono text-xs font-semibold text-blue-600 dark:text-blue-400">
-                {paymentId}
-              </span>
-              <span className="text-[11px] font-mono uppercase px-2 py-0.5 rounded bg-[var(--bg-card)] text-[var(--text-muted)] border border-[var(--border-main)]">
-                {data?.payment?.status}
-              </span>
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                DPDP Verified
-              </span>
-            </div>
-            <div className="flex items-center space-x-2">
-              <button
-                onClick={() => setShowAuditModal(true)}
-                className="px-2.5 py-1 rounded text-xs font-medium bg-[var(--bg-card)] hover:bg-[var(--border-main)] text-[var(--text-main)] border border-[var(--border-main)] transition-colors flex items-center space-x-1 cursor-pointer"
-              >
-                <FileText className="w-3 h-3 text-blue-600 dark:text-blue-400" />
-                <span>Audit PDF</span>
-              </button>
-
-              <button
-                onClick={() => setShowCustomerModal(true)}
-                className="px-2.5 py-1 rounded text-xs font-medium bg-[var(--bg-card)] hover:bg-[var(--border-main)] text-purple-600 dark:text-purple-400 border border-[var(--border-main)] transition-colors flex items-center space-x-1 cursor-pointer"
-              >
-                <Smartphone className="w-3 h-3" />
-                <span>Customer View</span>
-              </button>
-
-              <button
-                onClick={onClose}
-                className="p-1 rounded-md text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--border-main)] transition-colors cursor-pointer ml-1"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-
-          {/* Content */}
-          <div className="flex-1 overflow-y-auto p-5 space-y-4 text-xs">
-            {loading ? (
-              <div className="text-center py-16 text-[var(--text-muted)] font-mono">
-                Loading transaction audit graph...
-              </div>
-            ) : data ? (
-              <>
-                {/* Overview Cards */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 font-mono">
-                  <div className="bg-[var(--bg-subtle)] border border-[var(--border-main)] p-3 rounded-md">
-                    <div className="text-[10px] text-[var(--text-muted)] uppercase">Amount</div>
-                    <div className="text-sm font-bold text-[var(--text-main)] mt-0.5">
-                      ₹{Number(data.payment.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                    </div>
-                    <div className="text-[10px] text-[var(--text-muted)] uppercase mt-0.5">{data.payment.payment_method}</div>
-                  </div>
-
-                  <div className="bg-[var(--bg-subtle)] border border-[var(--border-main)] p-3 rounded-md font-sans">
-                    <div className="text-[10px] text-[var(--text-muted)] uppercase font-mono">Customer</div>
-                    <div className="text-xs font-semibold text-[var(--text-main)] mt-0.5 truncate">{data.payment.customer_name}</div>
-                    <div className="text-[10px] text-[var(--text-muted)] font-mono mt-0.5">{data.payment.metadata?.past_successful_payments || 0} prior txns</div>
-                  </div>
-
-                  <div className="bg-[var(--bg-subtle)] border border-[var(--border-main)] p-3 rounded-md">
-                    <div className="text-[10px] text-[var(--text-muted)] uppercase">Risk Score</div>
-                    <div className="text-xs font-bold text-amber-600 dark:text-amber-400 mt-0.5">
-                      {Math.round((data.payment.risk_score || 0.1) * 100)}%
-                    </div>
-                    <div className="text-[10px] text-[var(--text-muted)] mt-0.5">
-                      {data.payment.amount > 25000 ? 'High value' : 'Standard'}
-                    </div>
-                  </div>
-
-                  <div className="bg-[var(--bg-subtle)] border border-[var(--border-main)] p-3 rounded-md">
-                    <div className="text-[10px] text-[var(--text-muted)] uppercase">Settled Recovery</div>
-                    <div className="text-sm font-bold text-emerald-600 dark:text-emerald-400 mt-0.5">
-                      ₹{Number(data.payment.amount_recovered).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                    </div>
-                    <div className="text-[10px] text-[var(--text-muted)] mt-0.5">Retries: {data.payment.retry_count} / 2</div>
-                  </div>
-                </div>
-
-                {/* Diagnostic Box */}
-                <div className="p-3 bg-[var(--bg-subtle)] border border-[var(--border-main)] rounded-md space-y-1">
-                  <div className="text-[10px] font-mono uppercase text-rose-600 dark:text-rose-400 font-semibold">
-                    Diagnostic Failure Signal
-                  </div>
-                  <div className="text-xs text-[var(--text-main)] font-sans">{data.payment.failure_reason}</div>
-                  <div className="text-[10px] font-mono text-[var(--text-muted)]">Error Code: {data.payment.error_code}</div>
-                </div>
-
-                {/* Decisions List */}
-                {data.decisions && data.decisions.length > 0 && (
-                  <div className="space-y-2">
-                    <div className="text-[10px] font-mono uppercase text-[var(--text-muted)] font-semibold">
-                      Agent Decision & Telemetry
-                    </div>
-                    {data.decisions.map((dec: any, idx: number) => (
-                      <div key={dec.decision_id || idx} className="p-3 bg-[var(--bg-subtle)] border border-[var(--border-main)] rounded-md space-y-2">
-                        <div className="flex items-center justify-between text-xs font-mono">
-                          <span className="text-purple-600 dark:text-purple-400 font-semibold">
-                            Recommended Action: {dec.recommended_action}
-                          </span>
-                          <span className="text-[var(--text-muted)]">
-                            Prob: {Math.round(dec.recovery_probability * 100)}% • Net: ₹{Number(dec.expected_net_recovery).toLocaleString('en-IN')}
-                          </span>
-                        </div>
-                        <p className="text-[11px] text-[var(--text-main)] font-sans leading-relaxed">
-                          {dec.reason}
-                        </p>
-                        {dec.critic_notes && (
-                          <div className="text-[11px] font-mono text-amber-700 dark:text-amber-300 pt-1 border-t border-[var(--border-main)]">
-                            Critic Second Opinion: {dec.critic_notes}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Executions */}
-                {data.executions && data.executions.length > 0 && (
-                  <div className="space-y-2">
-                    <div className="text-[10px] font-mono uppercase text-[var(--text-muted)] font-semibold">
-                      Execution Receipts
-                    </div>
-                    {data.executions.map((ex: any, idx: number) => (
-                      <div key={ex.execution_id || idx} className="p-2.5 bg-[var(--bg-subtle)] border border-[var(--border-main)] rounded-md text-xs space-y-1">
-                        <div className="flex items-center justify-between font-mono text-[11px]">
-                          <span className="text-[var(--text-main)]">{ex.execution_id} ({ex.action})</span>
-                          <span className={ex.status === 'SUCCESS' ? 'text-emerald-600 dark:text-emerald-400 font-semibold' : 'text-amber-600 dark:text-amber-400 font-semibold'}>
-                            {ex.status}
-                          </span>
-                        </div>
-                        <p className="text-[var(--text-muted)] text-[11px] font-sans">{ex.result}</p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Audit Log */}
-                {data.audit_trail && data.audit_trail.length > 0 && (
-                  <div className="space-y-2">
-                    <div className="text-[10px] font-mono uppercase text-[var(--text-muted)] font-semibold">
-                      Chronological Audit Trail (Section 20)
-                    </div>
-                    <div className="p-3 bg-[var(--bg-subtle)] border border-[var(--border-main)] rounded-md space-y-2">
-                      {data.audit_trail.map((aud: any, idx: number) => (
-                        <div key={aud.audit_id || idx} className="flex items-start space-x-2 font-mono text-[10px]">
-                          <span className="text-[var(--text-muted)]">
-                            {new Date(aud.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                          </span>
-                          <span className="text-blue-600 dark:text-blue-400 font-semibold">[{aud.actor}]</span>
-                          <div className="flex-1 text-[var(--text-main)] font-sans text-[11px]">
-                            <span className="font-semibold">{aud.event_type}: </span>
-                            {aud.metadata?.reason || aud.metadata?.result || aud.metadata?.rule || JSON.stringify(aud.metadata)}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </>
-            ) : null}
-          </div>
-
-          {/* Footer */}
-          <div className="px-5 py-3 border-t border-[var(--border-main)] bg-[var(--bg-subtle)] flex items-center justify-between">
-            <span className="text-[11px] font-mono text-[var(--text-muted)]">Fail-Closed Safety Engine Enforced</span>
-            <div className="flex space-x-2">
-              {data?.payment?.status === 'failed' && (
-                <button
-                  onClick={handleRunRecovery}
-                  disabled={processing}
-                  className="px-3 py-1.5 rounded-md text-xs font-medium bg-[#0066F5] hover:bg-blue-600 text-white transition-colors disabled:opacity-50 cursor-pointer shadow-xs"
+      <Drawer
+        isOpen={Boolean(paymentId)}
+        onDismiss={onClose}
+        accessibilityLabel="Transaction detailed view"
+      >
+        <DrawerHeader
+          title="Transaction Details"
+          subtitle={paymentId}
+          color={payment ? statusColor(payment.status) : undefined}
+          showDivider={false}
+        >
+          <Box>
+            {payment ? (
+              <Box>
+                <Box marginTop="spacing.6" textAlign="center">
+                  <Amount
+                    value={Number(payment.amount) || 0}
+                    currency={toCurrency(payment.currency)}
+                    size="2xlarge"
+                    type="heading"
+                    weight="semibold"
+                    suffix="decimals"
+                  />
+                </Box>
+                <Box
+                  display="flex"
+                  justifyContent="center"
+                  alignItems="center"
+                  flexWrap="wrap"
+                  gap="spacing.3"
+                  marginTop="spacing.4"
                 >
-                  {processing ? 'Running...' : 'Run Pipeline'}
-                </button>
-              )}
-              <button
-                onClick={onClose}
-                className="px-3 py-1.5 rounded-md text-xs font-medium bg-[var(--bg-card)] hover:bg-[var(--border-main)] text-[var(--text-main)] border border-[var(--border-main)] transition-colors cursor-pointer"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
+                  <Badge
+                    size="medium"
+                    color={statusColor(payment.status)}
+                    emphasis="intense"
+                    icon={StatusBadgeIcon}
+                  >
+                    {humanizeStatus(payment.status)}
+                  </Badge>
+                  {typeof consent === 'boolean' ? (
+                    <Badge
+                      size="medium"
+                      color={consent ? 'positive' : 'notice'}
+                      icon={consent ? CheckIcon : AlertTriangleIcon}
+                    >
+                      {consent ? 'Messaging consent on file' : 'No messaging consent'}
+                    </Badge>
+                  ) : null}
+                </Box>
+                <Box
+                  display="flex"
+                  alignItems="center"
+                  justifyContent="center"
+                  gap="spacing.4"
+                  marginTop="spacing.6"
+                  paddingX="spacing.4"
+                >
+                  <Box display="flex">
+                    <Divider thickness="thicker" orientation="vertical" />
+                    <Box paddingX="spacing.3">
+                      <Text size="xsmall" color="surface.text.gray.muted" weight="semibold">
+                        Method
+                      </Text>
+                      <Text size="medium">{payment.payment_method || '—'}</Text>
+                    </Box>
+                  </Box>
+                  <Box display="flex">
+                    <Divider thickness="thicker" orientation="vertical" />
+                    <Box paddingX="spacing.3">
+                      <Text size="xsmall" color="surface.text.gray.muted" weight="semibold">
+                        Customer
+                      </Text>
+                      <Text size="medium">{payment.customer_name || '—'}</Text>
+                    </Box>
+                  </Box>
+                </Box>
+                <Box display="flex" gap="spacing.3" marginTop="spacing.6">
+                  <Button
+                    variant="secondary"
+                    size="small"
+                    icon={FileTextIcon}
+                    isFullWidth
+                    isDisabled={!data}
+                    onClick={() => setShowAuditModal(true)}
+                  >
+                    Audit PDF
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="small"
+                    icon={SmartphoneIcon}
+                    isFullWidth
+                    isDisabled={!data}
+                    onClick={() => setShowCustomerModal(true)}
+                  >
+                    Customer View
+                  </Button>
+                </Box>
+              </Box>
+            ) : null}
+          </Box>
+        </DrawerHeader>
 
-      {/* Customer Recovery Drawer Preview */}
-      {showCustomerModal && data && (
+        <DrawerBody>
+          {loading ? (
+            <Box
+              display="flex"
+              flexDirection="column"
+              alignItems="center"
+              justifyContent="center"
+              gap="spacing.4"
+              paddingY="spacing.11"
+            >
+              <Spinner accessibilityLabel="Loading transaction details" color="primary" size="large" />
+              <Text size="small" color="surface.text.gray.muted">
+                Loading transaction audit graph…
+              </Text>
+            </Box>
+          ) : data && payment ? (
+            <Box display="flex" flexDirection="column" gap="spacing.6">
+              {/* Payment summary */}
+              <Box>
+                <SectionHeading>Payment Summary</SectionHeading>
+                <KeyValueGrid>
+                  <KeyValueItem label="Amount">
+                    <Amount value={Number(payment.amount) || 0} currency={toCurrency(payment.currency)} />
+                  </KeyValueItem>
+                  <KeyValueItem label="Amount Recovered">
+                    <Amount
+                      value={Number(payment.amount_recovered) || 0}
+                      currency={toCurrency(payment.currency)}
+                      color={
+                        Number(payment.amount_recovered) > 0
+                          ? 'feedback.text.positive.intense'
+                          : undefined
+                      }
+                    />
+                  </KeyValueItem>
+                  <KeyValueItem label="Payment ID">
+                    <Code size="small">{payment.payment_id}</Code>
+                  </KeyValueItem>
+                  <KeyValueItem label="Method">
+                    <Text variant="body" size="medium">
+                      {payment.payment_method || '—'}
+                    </Text>
+                  </KeyValueItem>
+                  <KeyValueItem label="Status">
+                    <Badge size="small" color={statusColor(payment.status)} icon={StatusBadgeIcon}>
+                      {humanizeStatus(payment.status)}
+                    </Badge>
+                  </KeyValueItem>
+                  <KeyValueItem label="Customer">
+                    <Text variant="body" size="medium">
+                      {payment.customer_name || '—'}
+                      {typeof payment.metadata?.past_successful_payments === 'number'
+                        ? ` (${payment.metadata.past_successful_payments} prior txns)`
+                        : ''}
+                    </Text>
+                  </KeyValueItem>
+                  <KeyValueItem label="Retry Count">
+                    <Text variant="body" size="medium">
+                      {payment.retry_count ?? 0}
+                    </Text>
+                  </KeyValueItem>
+                  <KeyValueItem label="Risk Score">
+                    <Text variant="body" size="medium">
+                      {typeof payment.risk_score === 'number'
+                        ? `${Math.round(payment.risk_score * 100)}%`
+                        : '—'}
+                    </Text>
+                  </KeyValueItem>
+                </KeyValueGrid>
+                {payment.failure_reason ? (
+                  <Box marginTop="spacing.4">
+                    <Alert
+                      color="negative"
+                      emphasis="subtle"
+                      isDismissible={false}
+                      isFullWidth
+                      title="Diagnostic failure signal"
+                      description={
+                        payment.error_code
+                          ? `${payment.failure_reason} (error code: ${payment.error_code})`
+                          : payment.failure_reason
+                      }
+                    />
+                  </Box>
+                ) : null}
+              </Box>
+
+              {/* Decisions */}
+              {decisions.length > 0 ? (
+                <Box>
+                  <Divider marginBottom="spacing.5" />
+                  <SectionHeading>Agent Decisions</SectionHeading>
+                  <Box display="flex" flexDirection="column" gap="spacing.4">
+                    {decisions.map((dec, idx) => (
+                      <SectionCard key={dec.decision_id || idx}>
+                        <Box
+                          display="flex"
+                          justifyContent="space-between"
+                          alignItems="center"
+                          flexWrap="wrap"
+                          gap="spacing.2"
+                        >
+                          <Code size="medium" weight="bold">
+                            {dec.recommended_action || 'unknown_action'}
+                          </Code>
+                          {dec.critic_verdict ? (
+                            <Badge
+                              size="small"
+                              color={dec.critic_verdict === 'AGREE' ? 'positive' : 'notice'}
+                            >
+                              {`Critic: ${dec.critic_verdict}`}
+                            </Badge>
+                          ) : null}
+                        </Box>
+                        <Box display="flex" gap="spacing.5" flexWrap="wrap">
+                          <Box>
+                            <Text size="xsmall" color="surface.text.gray.muted" weight="semibold">
+                              Recovery Probability
+                            </Text>
+                            <Text size="small" weight="semibold">
+                              {typeof dec.recovery_probability === 'number'
+                                ? `${Math.round(dec.recovery_probability * 100)}%`
+                                : '—'}
+                            </Text>
+                          </Box>
+                          <Box>
+                            <Text size="xsmall" color="surface.text.gray.muted" weight="semibold">
+                              Expected Net Recovery
+                            </Text>
+                            <Amount
+                              value={Number(dec.expected_net_recovery) || 0}
+                              currency={toCurrency(payment.currency)}
+                              type="body"
+                              size="small"
+                              weight="semibold"
+                            />
+                          </Box>
+                          {dec.risk_level ? (
+                            <Box>
+                              <Text size="xsmall" color="surface.text.gray.muted" weight="semibold">
+                                Risk Level
+                              </Text>
+                              <Text size="small" weight="semibold">
+                                {dec.risk_level}
+                              </Text>
+                            </Box>
+                          ) : null}
+                        </Box>
+                        {dec.reason ? (
+                          <Text size="small" color="surface.text.gray.subtle">
+                            {dec.reason}
+                          </Text>
+                        ) : null}
+                        {dec.critic_notes ? (
+                          <Box>
+                            <Divider marginBottom="spacing.3" />
+                            <Text size="small" color="feedback.text.notice.intense">
+                              Critic second opinion: {dec.critic_notes}
+                            </Text>
+                          </Box>
+                        ) : null}
+                      </SectionCard>
+                    ))}
+                  </Box>
+                </Box>
+              ) : null}
+
+              {/* Executions */}
+              {executions.length > 0 ? (
+                <Box>
+                  <Divider marginBottom="spacing.5" />
+                  <SectionHeading>Execution Receipts</SectionHeading>
+                  <Box display="flex" flexDirection="column" gap="spacing.4">
+                    {executions.map((ex, idx) => (
+                      <SectionCard key={ex.execution_id || idx}>
+                        <Box
+                          display="flex"
+                          justifyContent="space-between"
+                          alignItems="center"
+                          flexWrap="wrap"
+                          gap="spacing.2"
+                        >
+                          <Box display="flex" alignItems="center" gap="spacing.2" flexWrap="wrap">
+                            <Code size="small">{ex.execution_id || '—'}</Code>
+                            <Text size="small" weight="semibold">
+                              {ex.action || '—'}
+                            </Text>
+                          </Box>
+                          <Badge size="small" color={executionColor(ex.status)}>
+                            {ex.status || 'unknown'}
+                          </Badge>
+                        </Box>
+                        <Box display="flex" gap="spacing.5" flexWrap="wrap">
+                          <Box>
+                            <Text size="xsmall" color="surface.text.gray.muted" weight="semibold">
+                              Amount Recovered
+                            </Text>
+                            <Amount
+                              value={Number(ex.amount_recovered) || 0}
+                              currency={toCurrency(payment.currency)}
+                              type="body"
+                              size="small"
+                              weight="semibold"
+                            />
+                          </Box>
+                          {typeof ex.details?.predicted_probability === 'number' ? (
+                            <Box>
+                              <Text size="xsmall" color="surface.text.gray.muted" weight="semibold">
+                                Predicted Probability
+                              </Text>
+                              <Text size="small" weight="semibold">
+                                {`${Math.round(ex.details.predicted_probability * 100)}%`}
+                              </Text>
+                            </Box>
+                          ) : null}
+                        </Box>
+                        {ex.result ? (
+                          <Text size="small" color="surface.text.gray.subtle">
+                            {ex.result}
+                          </Text>
+                        ) : null}
+                      </SectionCard>
+                    ))}
+                  </Box>
+                </Box>
+              ) : null}
+
+              {/* Audit trail timeline */}
+              {auditTrail.length > 0 ? (
+                <Box>
+                  <Divider marginBottom="spacing.5" />
+                  <SectionHeading>Audit Trail</SectionHeading>
+                  <StepGroup orientation="vertical" size="medium">
+                    {auditTrail.map((aud, idx) => (
+                      <StepItem
+                        key={aud.audit_id || idx}
+                        title={`${aud.event_type || 'EVENT'}${aud.actor ? ` · ${aud.actor}` : ''}`}
+                        timestamp={formatTimestamp(aud.timestamp)}
+                        description={auditDescription(aud.metadata)}
+                        stepProgress="full"
+                        marker={<StepItemIndicator color={auditEventColor(aud.event_type)} />}
+                      >
+                        {aud.prev_hash || aud.entry_hash ? (
+                          <Box
+                            display="flex"
+                            gap="spacing.2"
+                            alignItems="center"
+                            flexWrap="wrap"
+                            marginTop="spacing.2"
+                            marginBottom="spacing.3"
+                          >
+                            {aud.prev_hash ? (
+                              <Code size="small">{`prev:${truncateHash(aud.prev_hash)}`}</Code>
+                            ) : null}
+                            {aud.entry_hash ? (
+                              <Code size="small">{`hash:${truncateHash(aud.entry_hash)}`}</Code>
+                            ) : null}
+                          </Box>
+                        ) : null}
+                      </StepItem>
+                    ))}
+                  </StepGroup>
+                </Box>
+              ) : null}
+
+              {/* Human reviews */}
+              {humanReviews.length > 0 ? (
+                <Box>
+                  <Divider marginBottom="spacing.5" />
+                  <SectionHeading>Human Reviews</SectionHeading>
+                  <Box display="flex" flexDirection="column" gap="spacing.4">
+                    {humanReviews.map((review, idx) => (
+                      <SectionCard key={review.review_id || idx}>
+                        <Box
+                          display="flex"
+                          justifyContent="space-between"
+                          alignItems="center"
+                          flexWrap="wrap"
+                          gap="spacing.2"
+                        >
+                          <Code size="small">{review.review_id || '—'}</Code>
+                          <Box display="flex" gap="spacing.2" alignItems="center" flexWrap="wrap">
+                            {review.risk_level ? (
+                              <Badge size="small" color="neutral">
+                                {`Risk: ${review.risk_level}`}
+                              </Badge>
+                            ) : null}
+                            <Badge size="small" color={reviewColor(review.status)}>
+                              {humanizeStatus(review.status)}
+                            </Badge>
+                          </Box>
+                        </Box>
+                        {review.proposed_action ? (
+                          <Box display="flex" gap="spacing.2" alignItems="center" flexWrap="wrap">
+                            <Text size="xsmall" color="surface.text.gray.muted" weight="semibold">
+                              Proposed action
+                            </Text>
+                            <Code size="small">{review.proposed_action}</Code>
+                          </Box>
+                        ) : null}
+                        {review.reason ? (
+                          <Text size="small" color="surface.text.gray.subtle">
+                            {review.reason}
+                          </Text>
+                        ) : null}
+                        {review.reviewer || review.review_notes ? (
+                          <Text size="small" color="surface.text.gray.muted">
+                            {review.reviewer ? `Reviewer: ${review.reviewer}` : ''}
+                            {review.reviewer && review.review_notes ? ' — ' : ''}
+                            {review.review_notes || ''}
+                          </Text>
+                        ) : null}
+                      </SectionCard>
+                    ))}
+                  </Box>
+                </Box>
+              ) : null}
+            </Box>
+          ) : (
+            <Box paddingY="spacing.8" textAlign="center">
+              <Text size="small" color="surface.text.gray.muted">
+                No transaction details available.
+              </Text>
+            </Box>
+          )}
+        </DrawerBody>
+
+        <DrawerFooter>
+          <Box display="flex" justifyContent="space-between" alignItems="center" gap="spacing.4">
+            <Text size="xsmall" color="surface.text.gray.muted">
+              Fail-closed safety engine enforced
+            </Text>
+            <Box display="flex" gap="spacing.3">
+              <Button variant="tertiary" size="medium" onClick={onClose}>
+                Close
+              </Button>
+              {payment?.status === 'failed' ? (
+                <Button
+                  variant="primary"
+                  size="medium"
+                  icon={ZapIcon}
+                  isLoading={processing}
+                  onClick={handleRunRecovery}
+                >
+                  Run Full Recovery Pipeline
+                </Button>
+              ) : null}
+            </Box>
+          </Box>
+        </DrawerFooter>
+      </Drawer>
+
+      {/* Customer recovery drawer preview */}
+      {showCustomerModal && data && payment && (
         <CustomerRecoveryModal
           payment={{
-            payment_id: data.payment.payment_id,
-            customer_name: data.payment.customer_name,
-            amount: data.payment.amount,
-            payment_method: data.payment.payment_method,
-            failure_reason: data.payment.failure_reason,
+            payment_id: payment.payment_id,
+            customer_name: payment.customer_name || '',
+            amount: payment.amount,
+            payment_method: payment.payment_method || '',
+            failure_reason: payment.failure_reason || '',
           }}
           onClose={() => setShowCustomerModal(false)}
           onRecovered={() => {
@@ -260,12 +774,9 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({ paymentId, o
         />
       )}
 
-      {/* Compliance Audit Report Certificate Modal */}
+      {/* Compliance audit report certificate */}
       {showAuditModal && data && (
-        <AuditReportModal
-          paymentData={data}
-          onClose={() => setShowAuditModal(false)}
-        />
+        <AuditReportModal paymentData={data} onClose={() => setShowAuditModal(false)} />
       )}
     </>
   );

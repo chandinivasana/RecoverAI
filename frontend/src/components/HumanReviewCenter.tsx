@@ -1,7 +1,35 @@
 'use client';
 
 import React, { useState } from 'react';
-import { CheckCircle2, Eye, MessageCircleQuestion } from 'lucide-react';
+import {
+  Amount,
+  Badge,
+  Box,
+  Button,
+  Card,
+  CardBody,
+  CardHeader,
+  CardHeaderBadge,
+  CardHeaderLeading,
+  CardHeaderTrailing,
+  CheckCircleIcon,
+  Code,
+  Counter,
+  EmptyState,
+  EyeIcon,
+  Heading,
+  Link,
+  MessageCircleIcon,
+  SendIcon,
+  StopCircleIcon,
+  TabItem,
+  TabList,
+  TabPanel,
+  Tabs,
+  Text,
+  TextInput,
+  useToast,
+} from '@razorpay/blade/components';
 import { HumanReviewItem } from '../types';
 import { approveReview, rejectReview, explainRefusal, RefusalExplanation } from '../lib/api';
 
@@ -11,15 +39,56 @@ interface HumanReviewCenterProps {
   onSelectPayment: (paymentId: string) => void;
 }
 
-export const HumanReviewCenter: React.FC<HumanReviewCenterProps> = ({ reviews, onRefresh, onSelectPayment }) => {
-  const [filter, setFilter] = useState<'ALL' | 'PENDING' | 'APPROVED' | 'REJECTED'>('PENDING');
-  const [actionLoading, setActionLoading] = useState<string | null>(null);
+type ReviewFilter = 'PENDING' | 'APPROVED' | 'REJECTED' | 'ALL';
+
+const FILTERS: ReviewFilter[] = ['PENDING', 'APPROVED', 'REJECTED', 'ALL'];
+
+const statusBadgeColor = (
+  status: HumanReviewItem['status'],
+): 'notice' | 'positive' | 'neutral' => {
+  if (status === 'PENDING') return 'notice';
+  if (status === 'APPROVED') return 'positive';
+  return 'neutral';
+};
+
+const riskBadgeColor = (
+  riskLevel: string,
+): 'negative' | 'notice' | 'positive' | 'neutral' => {
+  const level = (riskLevel || '').toUpperCase();
+  if (level === 'HIGH' || level === 'CRITICAL') return 'negative';
+  if (level === 'MEDIUM') return 'notice';
+  if (level === 'LOW') return 'positive';
+  return 'neutral';
+};
+
+const filterCounterColor = (
+  tab: ReviewFilter,
+): 'notice' | 'positive' | 'neutral' | 'information' => {
+  if (tab === 'PENDING') return 'notice';
+  if (tab === 'APPROVED') return 'positive';
+  if (tab === 'REJECTED') return 'neutral';
+  return 'information';
+};
+
+export const HumanReviewCenter: React.FC<HumanReviewCenterProps> = ({
+  reviews,
+  onRefresh,
+  onSelectPayment,
+}) => {
+  const toast = useToast();
+  const [actionLoading, setActionLoading] = useState<{
+    id: string;
+    kind: 'approve' | 'reject';
+  } | null>(null);
   const [qnaOpenFor, setQnaOpenFor] = useState<string | null>(null);
   const [qnaQuestion, setQnaQuestion] = useState('');
   const [qnaLoading, setQnaLoading] = useState(false);
   const [qnaAnswer, setQnaAnswer] = useState<RefusalExplanation | null>(null);
 
-  const handleAsk = async (reviewId: string) => {
+  const errorMessage = (err: unknown): string =>
+    err instanceof Error ? err.message : String(err);
+
+  const handleAsk = async (reviewId: string): Promise<void> => {
     if (qnaQuestion.trim().length < 3) return;
     setQnaLoading(true);
     setQnaAnswer(null);
@@ -27,13 +96,16 @@ export const HumanReviewCenter: React.FC<HumanReviewCenterProps> = ({ reviews, o
       const result = await explainRefusal(reviewId, qnaQuestion.trim());
       setQnaAnswer(result);
     } catch (err) {
-      alert('Error explaining refusal: ' + err);
+      toast.show({
+        content: `Could not explain refusal: ${errorMessage(err)}`,
+        color: 'negative',
+      });
     } finally {
       setQnaLoading(false);
     }
   };
 
-  const toggleQna = (reviewId: string) => {
+  const toggleQna = (reviewId: string): void => {
     if (qnaOpenFor === reviewId) {
       setQnaOpenFor(null);
     } else {
@@ -43,230 +115,336 @@ export const HumanReviewCenter: React.FC<HumanReviewCenterProps> = ({ reviews, o
     }
   };
 
-  const filteredReviews = reviews.filter((r) => {
-    if (filter === 'ALL') return true;
-    return r.status === filter;
-  });
-
-  const handleApprove = async (reviewId: string) => {
-    setActionLoading(reviewId);
+  const handleApprove = async (reviewId: string): Promise<void> => {
+    setActionLoading({ id: reviewId, kind: 'approve' });
     try {
       await approveReview(reviewId, 'Approved by Merchant Risk Officer');
+      toast.show({
+        content: 'Execution approved — recovery will proceed.',
+        color: 'positive',
+        autoDismiss: true,
+      });
       onRefresh();
     } catch (err) {
-      alert('Error approving review: ' + err);
+      // A hard policy rule can refuse even human sign-off (HTTP 409). The API
+      // layer surfaces the rule-naming detail verbatim — show it in full and
+      // keep it on screen until dismissed.
+      toast.show({
+        content: `Approval refused by policy: ${errorMessage(err)}`,
+        color: 'negative',
+        autoDismiss: false,
+      });
     } finally {
       setActionLoading(null);
     }
   };
 
-  const handleReject = async (reviewId: string) => {
-    setActionLoading(reviewId);
+  const handleReject = async (reviewId: string): Promise<void> => {
+    setActionLoading({ id: reviewId, kind: 'reject' });
     try {
       await rejectReview(reviewId, 'Rejected by Merchant Risk Officer — halted.');
+      toast.show({
+        content: 'Review rejected — recovery safely stopped.',
+        color: 'neutral',
+        autoDismiss: true,
+      });
       onRefresh();
     } catch (err) {
-      alert('Error rejecting review: ' + err);
+      toast.show({
+        content: `Could not reject review: ${errorMessage(err)}`,
+        color: 'negative',
+      });
     } finally {
       setActionLoading(null);
     }
+  };
+
+  const providerChipLabel = (answer: RefusalExplanation): string => {
+    const label =
+      answer.provider === 'anthropic'
+        ? 'LLM · Claude'
+        : answer.degraded
+        ? 'deterministic fallback'
+        : 'deterministic';
+    return answer.latency_ms > 0 ? `${label} · ${answer.latency_ms}ms` : label;
+  };
+
+  const renderReviewCard = (rev: HumanReviewItem): React.ReactElement => {
+    const isActing = actionLoading?.id === rev.review_id;
+    return (
+      <Card key={rev.review_id} padding="spacing.5" elevation="lowRaised">
+        <CardHeader>
+          <CardHeaderLeading
+            title={rev.customer_name}
+            subtitle={`${rev.payment_id} · ${rev.payment_method}`}
+          />
+          <CardHeaderTrailing
+            visual={
+              <CardHeaderBadge color={statusBadgeColor(rev.status)}>
+                {rev.status}
+              </CardHeaderBadge>
+            }
+          />
+        </CardHeader>
+        <CardBody>
+          <Box display="flex" flexDirection="column" gap="spacing.4">
+            {/* Amount + risk / strategy context */}
+            <Box
+              display="flex"
+              flexDirection="row"
+              flexWrap="wrap"
+              justifyContent="space-between"
+              alignItems="center"
+              gap="spacing.3"
+            >
+              <Amount
+                value={rev.amount}
+                currency="INR"
+                type="heading"
+                size="large"
+                weight="semibold"
+              />
+              <Box
+                display="flex"
+                flexDirection="row"
+                flexWrap="wrap"
+                alignItems="center"
+                gap="spacing.4"
+              >
+                <Box display="flex" flexDirection="row" alignItems="center" gap="spacing.2">
+                  <Text size="xsmall" color="surface.text.gray.muted">
+                    Risk profile
+                  </Text>
+                  <Badge color={riskBadgeColor(rev.risk_level)} size="small">
+                    {rev.risk_level}
+                  </Badge>
+                </Box>
+                <Box display="flex" flexDirection="row" alignItems="center" gap="spacing.2">
+                  <Text size="xsmall" color="surface.text.gray.muted">
+                    Prior orders
+                  </Text>
+                  <Text size="small" weight="semibold">
+                    {String(rev.customer_context?.past_successful_payments || 0)}
+                  </Text>
+                </Box>
+                <Box display="flex" flexDirection="row" alignItems="center" gap="spacing.2">
+                  <Text size="xsmall" color="surface.text.gray.muted">
+                    Proposed strategy
+                  </Text>
+                  <Code size="small">{rev.proposed_action}</Code>
+                </Box>
+              </Box>
+            </Box>
+
+            {/* Policy block reason */}
+            <Box
+              backgroundColor="surface.background.gray.subtle"
+              borderRadius="medium"
+              padding="spacing.4"
+              display="flex"
+              flexDirection="column"
+              gap="spacing.2"
+            >
+              <Text size="xsmall" weight="semibold" color="feedback.text.notice.intense">
+                Policy block reason
+              </Text>
+              <Text size="small">{rev.reason}</Text>
+              <Text size="xsmall" color="surface.text.gray.muted">
+                Diagnostic: {rev.failure_reason}
+              </Text>
+            </Box>
+
+            {/* Actions footer */}
+            <Box
+              display="flex"
+              flexDirection="row"
+              flexWrap="wrap"
+              justifyContent="space-between"
+              alignItems="center"
+              gap="spacing.3"
+            >
+              <Box
+                display="flex"
+                flexDirection="row"
+                flexWrap="wrap"
+                alignItems="center"
+                gap="spacing.5"
+              >
+                <Link
+                  variant="button"
+                  size="small"
+                  icon={EyeIcon}
+                  onClick={() => onSelectPayment(rev.payment_id)}
+                >
+                  Inspect Decision Audit Graph
+                </Link>
+                <Link
+                  variant="button"
+                  size="small"
+                  icon={MessageCircleIcon}
+                  onClick={() => toggleQna(rev.review_id)}
+                >
+                  {qnaOpenFor === rev.review_id ? 'Close Q&A' : 'Ask why it was refused'}
+                </Link>
+              </Box>
+
+              {rev.status === 'PENDING' && (
+                <Box display="flex" flexDirection="row" gap="spacing.3">
+                  <Button
+                    variant="secondary"
+                    color="negative"
+                    size="small"
+                    icon={StopCircleIcon}
+                    isLoading={isActing && actionLoading?.kind === 'reject'}
+                    isDisabled={isActing && actionLoading?.kind !== 'reject'}
+                    onClick={() => handleReject(rev.review_id)}
+                  >
+                    Reject & Safe Stop
+                  </Button>
+                  <Button
+                    variant="primary"
+                    color="positive"
+                    size="small"
+                    icon={CheckCircleIcon}
+                    isLoading={isActing && actionLoading?.kind === 'approve'}
+                    isDisabled={isActing && actionLoading?.kind !== 'approve'}
+                    onClick={() => handleApprove(rev.review_id)}
+                  >
+                    Approve Execution
+                  </Button>
+                </Box>
+              )}
+            </Box>
+
+            {/* Explainable refusal Q&A drawer */}
+            {qnaOpenFor === rev.review_id && (
+              <Box
+                backgroundColor="surface.background.gray.subtle"
+                borderRadius="medium"
+                padding="spacing.4"
+                display="flex"
+                flexDirection="column"
+                gap="spacing.3"
+              >
+                <Text size="xsmall" weight="semibold" color="surface.text.primary.normal">
+                  Explainable Refusal — ask the reasoning layer
+                </Text>
+                <Box
+                  display="flex"
+                  flexDirection="row"
+                  alignItems="center"
+                  gap="spacing.3"
+                >
+                  <Box flex="1">
+                    <TextInput
+                      accessibilityLabel="Ask why this recovery was refused"
+                      placeholder="e.g. Why not just retry this payment?"
+                      value={qnaQuestion}
+                      onChange={({ value }) => setQnaQuestion(value ?? '')}
+                      onKeyDown={({ key }) => {
+                        if (key === 'Enter' && !qnaLoading) void handleAsk(rev.review_id);
+                      }}
+                    />
+                  </Box>
+                  <Button
+                    size="medium"
+                    icon={SendIcon}
+                    isLoading={qnaLoading}
+                    isDisabled={qnaQuestion.trim().length < 3}
+                    onClick={() => handleAsk(rev.review_id)}
+                  >
+                    Ask
+                  </Button>
+                </Box>
+                {qnaAnswer && (
+                  <Box display="flex" flexDirection="column" gap="spacing.3">
+                    <Text size="small">{qnaAnswer.answer}</Text>
+                    <Box
+                      display="flex"
+                      flexDirection="row"
+                      flexWrap="wrap"
+                      alignItems="center"
+                      gap="spacing.2"
+                    >
+                      {qnaAnswer.cited_rules.map((rule) => (
+                        <Badge key={rule} color="notice" size="small">
+                          {rule}
+                        </Badge>
+                      ))}
+                      <Badge
+                        color={qnaAnswer.provider === 'anthropic' ? 'information' : 'neutral'}
+                        size="small"
+                      >
+                        {providerChipLabel(qnaAnswer)}
+                      </Badge>
+                    </Box>
+                  </Box>
+                )}
+              </Box>
+            )}
+          </Box>
+        </CardBody>
+      </Card>
+    );
+  };
+
+  const renderQueue = (tab: ReviewFilter): React.ReactElement => {
+    const items = reviews.filter((r) => tab === 'ALL' || r.status === tab);
+    if (items.length === 0) {
+      return (
+        <EmptyState
+          size="medium"
+          asset={<CheckCircleIcon size="2xlarge" color="surface.icon.gray.muted" />}
+          title="Queue is clear"
+          description="No transactions currently flagged in this status."
+        />
+      );
+    }
+    return (
+      <Box display="flex" flexDirection="column" gap="spacing.4">
+        {items.map((rev) => renderReviewCard(rev))}
+      </Box>
+    );
   };
 
   return (
-    <div className="space-y-4">
-      {/* Header Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-[var(--bg-card)] border border-[var(--border-main)] p-4 rounded-md shadow-xs">
-        <div>
-          <h2 className="text-xs font-semibold text-[var(--text-main)] uppercase tracking-wider">
-            Escalation Triage Queue (Section 17)
-          </h2>
-          <p className="text-[11px] text-[var(--text-muted)] mt-0.5">
-            Transactions blocked by deterministic safety rules requiring human risk officer sign-off
-          </p>
-        </div>
+    <Box display="flex" flexDirection="column" gap="spacing.5">
+      {/* Header */}
+      <Box display="flex" flexDirection="column" gap="spacing.1">
+        <Heading size="small" weight="semibold">
+          Escalation Triage Queue (Section 17)
+        </Heading>
+        <Text size="xsmall" color="surface.text.gray.muted">
+          Transactions blocked by deterministic safety rules requiring human risk officer
+          sign-off
+        </Text>
+      </Box>
 
-        <div className="flex items-center space-x-1 bg-[var(--bg-subtle)] p-1 rounded-md border border-[var(--border-main)]">
-          {(['PENDING', 'APPROVED', 'REJECTED', 'ALL'] as const).map((tab) => (
-            <button
+      {/* Filter tabs + review queue */}
+      <Tabs defaultValue="PENDING" variant="bordered" orientation="horizontal">
+        <TabList>
+          {FILTERS.map((tab) => (
+            <TabItem
               key={tab}
-              onClick={() => setFilter(tab)}
-              className={`px-2.5 py-1 text-xs font-medium rounded transition-colors cursor-pointer ${
-                filter === tab
-                  ? 'bg-[var(--bg-card)] text-[var(--text-main)] shadow-xs'
-                  : 'text-[var(--text-muted)] hover:text-[var(--text-main)]'
-              }`}
+              value={tab}
+              trailing={
+                <Counter
+                  value={reviews.filter((r) => tab === 'ALL' || r.status === tab).length}
+                  color={filterCounterColor(tab)}
+                  size="small"
+                />
+              }
             >
-              {tab} ({reviews.filter((r) => tab === 'ALL' || r.status === tab).length})
-            </button>
+              {tab}
+            </TabItem>
           ))}
-        </div>
-      </div>
-
-      {/* Review Queue Items */}
-      <div className="space-y-3">
-        {filteredReviews.length === 0 ? (
-          <div className="text-center py-12 bg-[var(--bg-card)] border border-dashed border-[var(--border-main)] rounded-md">
-            <div className="text-xs font-semibold text-[var(--text-muted)]">Queue is clear</div>
-            <p className="text-[11px] text-[var(--text-dim)] mt-0.5">No transactions currently flagged in this status.</p>
-          </div>
-        ) : (
-          filteredReviews.map((rev) => (
-            <div
-              key={rev.review_id}
-              className="bg-[var(--bg-card)] border border-[var(--border-main)] rounded-md p-4 space-y-3 shadow-xs"
-            >
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2.5 border-b border-[var(--border-main)]">
-                <div className="flex items-center space-x-2.5">
-                  <span className="text-xs font-mono font-semibold text-blue-600 dark:text-blue-400">
-                    {rev.payment_id}
-                  </span>
-                  <span className="text-xs text-[var(--text-main)]">
-                    {rev.customer_name}
-                  </span>
-                  <span className="text-[10px] text-[var(--text-muted)] uppercase font-mono">
-                    • {rev.payment_method}
-                  </span>
-                </div>
-
-                <div className="flex items-center space-x-3">
-                  <span className="text-sm font-bold text-[var(--text-main)] font-mono">
-                    ₹{Number(rev.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                  </span>
-                  <span
-                    className={`px-2 py-0.5 rounded text-[11px] font-mono font-semibold ${
-                      rev.status === 'PENDING'
-                        ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'
-                        : rev.status === 'APPROVED'
-                        ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
-                        : 'bg-[var(--bg-subtle)] text-[var(--text-muted)] border border-[var(--border-main)]'
-                    }`}
-                  >
-                    {rev.status}
-                  </span>
-                </div>
-              </div>
-
-              {/* Reason Box */}
-              <div className="grid grid-cols-1 md:grid-cols-12 gap-3 text-xs">
-                <div className="md:col-span-8 bg-[var(--bg-subtle)] border border-[var(--border-main)] rounded-md p-3 space-y-1.5">
-                  <div className="text-[10px] font-mono uppercase font-semibold text-amber-600 dark:text-amber-400">
-                    Policy Block Reason
-                  </div>
-                  <p className="text-[11px] text-[var(--text-main)] leading-relaxed">
-                    {rev.reason}
-                  </p>
-                  <div className="text-[11px] text-[var(--text-muted)] pt-1">
-                    Diagnostic: {rev.failure_reason}
-                  </div>
-                </div>
-
-                <div className="md:col-span-4 bg-[var(--bg-subtle)] border border-[var(--border-main)] rounded-md p-3 flex flex-col justify-between text-[11px] font-mono space-y-1">
-                  <div>
-                    <span className="text-[var(--text-muted)]">Risk Profile: </span>
-                    <span className="text-rose-600 dark:text-rose-400 font-semibold">{rev.risk_level}</span>
-                  </div>
-                  <div>
-                    <span className="text-[var(--text-muted)]">Prior Orders: </span>
-                    <span className="text-[var(--text-main)]">{rev.customer_context?.past_successful_payments || 0}</span>
-                  </div>
-                  <div>
-                    <span className="text-[var(--text-muted)]">Proposed Strategy: </span>
-                    <span className="text-purple-600 dark:text-purple-400 font-semibold">{rev.proposed_action}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Actions Footer */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between pt-1 gap-2">
-                <div className="flex items-center space-x-4">
-                  <button
-                    onClick={() => onSelectPayment(rev.payment_id)}
-                    className="text-xs text-blue-600 dark:text-blue-400 hover:underline flex items-center space-x-1 font-mono transition-colors cursor-pointer"
-                  >
-                    <Eye className="w-3.5 h-3.5" />
-                    <span>Inspect Decision Audit Graph</span>
-                  </button>
-                  <button
-                    onClick={() => toggleQna(rev.review_id)}
-                    className="text-xs text-purple-600 dark:text-purple-400 hover:underline flex items-center space-x-1 font-mono transition-colors cursor-pointer"
-                  >
-                    <MessageCircleQuestion className="w-3.5 h-3.5" />
-                    <span>{qnaOpenFor === rev.review_id ? 'Close Q&A' : 'Ask why it was refused'}</span>
-                  </button>
-                </div>
-
-                {rev.status === 'PENDING' && (
-                  <div className="flex items-center space-x-2">
-                    <button
-                      onClick={() => handleReject(rev.review_id)}
-                      disabled={actionLoading === rev.review_id}
-                      className="px-3 py-1.5 rounded-md text-xs font-medium bg-[var(--bg-subtle)] hover:bg-[var(--border-main)] text-[var(--text-main)] border border-[var(--border-main)] transition-colors disabled:opacity-50 cursor-pointer"
-                    >
-                      Reject & Safe Stop
-                    </button>
-                    <button
-                      onClick={() => handleApprove(rev.review_id)}
-                      disabled={actionLoading === rev.review_id}
-                      className="px-3 py-1.5 rounded-md text-xs font-medium bg-emerald-600 hover:bg-emerald-500 text-white transition-colors flex items-center space-x-1 disabled:opacity-50 cursor-pointer shadow-xs"
-                    >
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      <span>{actionLoading === rev.review_id ? 'Executing...' : 'Approve Execution'}</span>
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {/* Explainable Refusal Q&A Drawer */}
-              {qnaOpenFor === rev.review_id && (
-                <div className="mt-1 bg-[var(--bg-subtle)] border border-[var(--border-main)] rounded-md p-3 space-y-2.5">
-                  <div className="text-[10px] font-mono uppercase font-semibold text-purple-600 dark:text-purple-400">
-                    Explainable Refusal — ask the reasoning layer
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <input
-                      value={qnaQuestion}
-                      onChange={(e) => setQnaQuestion(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && !qnaLoading && handleAsk(rev.review_id)}
-                      placeholder="e.g. Why not just retry this payment?"
-                      className="flex-1 px-2.5 py-1.5 text-xs rounded-md bg-[var(--bg-card)] border border-[var(--border-main)] text-[var(--text-main)] placeholder-[var(--text-dim)] outline-none focus:border-purple-500"
-                    />
-                    <button
-                      onClick={() => handleAsk(rev.review_id)}
-                      disabled={qnaLoading || qnaQuestion.trim().length < 3}
-                      className="px-3 py-1.5 rounded-md text-xs font-medium bg-purple-600 hover:bg-purple-500 text-white transition-colors disabled:opacity-50 cursor-pointer"
-                    >
-                      {qnaLoading ? 'Reasoning…' : 'Ask'}
-                    </button>
-                  </div>
-                  {qnaAnswer && (
-                    <div className="space-y-2">
-                      <p className="text-[11px] text-[var(--text-main)] leading-relaxed">{qnaAnswer.answer}</p>
-                      <div className="flex flex-wrap items-center gap-1.5 text-[10px] font-mono">
-                        {qnaAnswer.cited_rules.map((rule) => (
-                          <span key={rule} className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
-                            {rule}
-                          </span>
-                        ))}
-                        <span
-                          className={`px-1.5 py-0.5 rounded border ${
-                            qnaAnswer.provider === 'anthropic'
-                              ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20'
-                              : 'bg-[var(--bg-card)] text-[var(--text-muted)] border-[var(--border-main)]'
-                          }`}
-                          title={qnaAnswer.degraded ? 'LLM unavailable — deterministic fallback answered (audited as LLM_FALLBACK)' : undefined}
-                        >
-                          {qnaAnswer.provider === 'anthropic' ? 'LLM · Claude' : qnaAnswer.degraded ? 'deterministic fallback' : 'deterministic'}
-                          {qnaAnswer.latency_ms > 0 ? ` · ${qnaAnswer.latency_ms}ms` : ''}
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          ))
-        )}
-      </div>
-    </div>
+        </TabList>
+        {FILTERS.map((tab) => (
+          <TabPanel key={tab} value={tab}>
+            <Box paddingTop="spacing.4">{renderQueue(tab)}</Box>
+          </TabPanel>
+        ))}
+      </Tabs>
+    </Box>
   );
 };

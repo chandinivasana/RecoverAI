@@ -8,7 +8,7 @@
 [![Next.js 16](https://img.shields.io/badge/frontend-Next.js%2016-black.svg)](https://nextjs.org/)
 [![FastAPI](https://img.shields.io/badge/backend-FastAPI-009688.svg)](https://fastapi.tiangolo.com/)
 ![Tests Passing](https://img.shields.io/badge/tests-46%2F46%20passing-brightgreen.svg)
-[![Design System](https://img.shields.io/badge/design-Razorpay%20Blade%20inspired-0C8CE9.svg)](https://blade.razorpay.com/)
+[![Design System](https://img.shields.io/badge/design-Razorpay%20Blade-0C8CE9.svg)](https://blade.razorpay.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 > **Core System Invariant**:  

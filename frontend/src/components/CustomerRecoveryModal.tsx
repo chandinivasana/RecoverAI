@@ -1,7 +1,29 @@
 'use client';
 
 import React, { useState } from 'react';
-import { X, CheckCircle2, Shield, Smartphone, CreditCard, Building, ArrowRight, Zap, RefreshCw } from 'lucide-react';
+import {
+  Modal,
+  ModalHeader,
+  ModalBody,
+  ModalFooter,
+  Box,
+  Text,
+  Amount,
+  Button,
+  Badge,
+  Alert,
+  Code,
+  RadioGroup,
+  Radio,
+  InfoGroup,
+  InfoItem,
+  InfoItemKey,
+  InfoItemValue,
+  useToast,
+  CheckCircleIcon,
+  ArrowRightIcon,
+  ShieldIcon,
+} from '@razorpay/blade/components';
 import { processFullRecovery } from '../lib/api';
 
 interface CustomerRecoveryModalProps {
@@ -16,181 +38,177 @@ interface CustomerRecoveryModalProps {
   onRecovered?: () => void;
 }
 
+type RecoveryRail = 'upi' | 'netbanking' | 'link';
+
+const railLabels: Record<RecoveryRail, string> = {
+  upi: 'UPI',
+  netbanking: 'NetBanking',
+  link: 'Payment link',
+};
+
 export const CustomerRecoveryModal: React.FC<CustomerRecoveryModalProps> = ({
   payment,
   onClose,
   onRecovered,
 }) => {
-  const [selectedRail, setSelectedRail] = useState<'upi' | 'netbanking' | 'link'>('upi');
+  const [selectedRail, setSelectedRail] = useState<RecoveryRail>('upi');
   const [processing, setProcessing] = useState(false);
   const [success, setSuccess] = useState(false);
+  const toast = useToast();
 
-  const handlePay = async () => {
+  const handlePay = async (): Promise<void> => {
     setProcessing(true);
     try {
       await processFullRecovery(payment.payment_id);
       setSuccess(true);
+      toast.show({
+        content: `Recovery processed via ${railLabels[selectedRail]}`,
+        color: 'positive',
+      });
       if (onRecovered) onRecovered();
       setTimeout(() => {
         onClose();
       }, 2200);
     } catch (err) {
-      alert('Simulated recovery error: ' + err);
+      toast.show({
+        content: err instanceof Error ? err.message : 'Recovery attempt failed',
+        color: 'negative',
+      });
     } finally {
       setProcessing(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4">
-      {/* Mobile Mockup Card - Razorpay Blade Design Language */}
-      <div className="bg-[var(--bg-card)] border border-[var(--border-main)] rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl font-sans text-xs">
-        {/* Top Razorpay Blade Header */}
-        <div className="bg-[#0C2340] text-white p-4 flex items-center justify-between">
-          <div className="flex items-center space-x-2">
-            <div className="w-6 h-6 rounded bg-[#0C8CE9] flex items-center justify-center font-bold text-xs text-white">
-              R
-            </div>
-            <div>
-              <div className="font-bold text-xs tracking-tight">Razorpay Checkout Recovery</div>
-              <div className="text-[10px] text-blue-200">Secured with 256-bit encryption</div>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="text-slate-300 hover:text-white p-1 rounded-md transition-colors cursor-pointer"
+    <Modal
+      isOpen={true}
+      onDismiss={onClose}
+      size="small"
+      zIndex={1100}
+      accessibilityLabel="Customer checkout preview"
+    >
+      <ModalHeader
+        title="Customer checkout preview"
+        subtitle="What your customer sees when retrying a failed payment"
+        trailing={<Badge color="information">Demo</Badge>}
+      />
+      <ModalBody>
+        {success ? (
+          <Box
+            display="flex"
+            flexDirection="column"
+            alignItems="center"
+            gap="spacing.4"
+            paddingY="spacing.7"
           >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
+            <CheckCircleIcon size="2xlarge" color="feedback.icon.positive.intense" />
+            <Text size="large" weight="semibold">
+              Payment successful
+            </Text>
+            <Amount
+              value={payment.amount}
+              type="heading"
+              size="large"
+              weight="semibold"
+              currency="INR"
+            />
+            <Text size="small" color="surface.text.gray.muted" textAlign="center">
+              Recovery processed via {railLabels[selectedRail]} for{' '}
+              <Code size="small">{payment.payment_id}</Code>
+            </Text>
+          </Box>
+        ) : (
+          <Box display="flex" flexDirection="column" gap="spacing.5" paddingTop="spacing.4">
+            <Alert
+              color="negative"
+              emphasis="subtle"
+              isDismissible={false}
+              title="Your payment didn't go through"
+              description="Retry securely or pick another method below."
+            />
 
-        {/* Payment Amount & Diagnostic Alert */}
-        <div className="p-4 bg-[var(--bg-subtle)] border-b border-[var(--border-main)] space-y-2">
-          <div className="flex justify-between items-baseline">
-            <span className="text-[11px] text-[var(--text-muted)]">Pay to Merchant</span>
-            <span className="text-xl font-bold font-mono text-[var(--text-main)]">
-              ₹{Number(payment.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-            </span>
-          </div>
+            <InfoGroup itemOrientation="horizontal" size="small" valueAlign="right">
+              <InfoItem>
+                <InfoItemKey>Amount</InfoItemKey>
+                <InfoItemValue>
+                  <Amount value={payment.amount} weight="semibold" size="medium" currency="INR" />
+                </InfoItemValue>
+              </InfoItem>
+              <InfoItem>
+                <InfoItemKey>Customer</InfoItemKey>
+                <InfoItemValue>{payment.customer_name}</InfoItemValue>
+              </InfoItem>
+              <InfoItem>
+                <InfoItemKey>Failed method</InfoItemKey>
+                <InfoItemValue>{payment.payment_method.toUpperCase()}</InfoItemValue>
+              </InfoItem>
+              <InfoItem>
+                <InfoItemKey>Failure reason</InfoItemKey>
+                <InfoItemValue>{payment.failure_reason}</InfoItemValue>
+              </InfoItem>
+              <InfoItem>
+                <InfoItemKey>Payment ID</InfoItemKey>
+                <InfoItemValue>
+                  <Code size="small">{payment.payment_id}</Code>
+                </InfoItemValue>
+              </InfoItem>
+            </InfoGroup>
 
-          <div className="p-2.5 rounded-md bg-rose-500/10 border border-rose-500/20 text-[11px] text-rose-600 dark:text-rose-400">
-            <div className="font-semibold">Payment Incomplete on {payment.payment_method.toUpperCase()}</div>
-            <div className="text-[10px] text-[var(--text-muted)] mt-0.5">{payment.failure_reason}</div>
-          </div>
-        </div>
-
-        {/* Smart Rails Selector */}
-        <div className="p-4 space-y-3">
+            <RadioGroup
+              label="Pay again using"
+              name="recovery-rail"
+              value={selectedRail}
+              onChange={({ value }) => setSelectedRail(value as RecoveryRail)}
+              isDisabled={processing}
+            >
+              <Radio value="upi" helpText="Google Pay, PhonePe, Paytm and other UPI apps">
+                UPI
+              </Radio>
+              <Radio value="netbanking" helpText="Pay directly from your bank account">
+                NetBanking
+              </Radio>
+              <Radio value="link" helpText="Get a link on SMS or WhatsApp and finish on your phone">
+                Payment link
+              </Radio>
+            </RadioGroup>
+          </Box>
+        )}
+      </ModalBody>
+      <ModalFooter>
+        <Box
+          display="flex"
+          alignItems="center"
+          justifyContent="space-between"
+          width="100%"
+          gap="spacing.4"
+        >
+          <Box display="flex" alignItems="center" gap="spacing.2">
+            <ShieldIcon size="small" color="surface.icon.gray.subtle" />
+            <Text size="xsmall" color="surface.text.gray.muted">
+              Demo preview — no real money moves
+            </Text>
+          </Box>
           {success ? (
-            <div className="py-8 text-center space-y-2">
-              <div className="w-12 h-12 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-500 flex items-center justify-center mx-auto">
-                <CheckCircle2 className="w-7 h-7" />
-              </div>
-              <div className="font-bold text-sm text-[var(--text-main)]">Payment Successful!</div>
-              <p className="text-[11px] text-[var(--text-muted)]">
-                ₹{Number(payment.amount).toLocaleString('en-IN')} settled via {selectedRail.toUpperCase()}. Receipt sent to your phone.
-              </p>
-            </div>
+            <Button variant="tertiary" onClick={onClose}>
+              Close
+            </Button>
           ) : (
-            <>
-              <div className="text-[11px] font-semibold text-[var(--text-main)] uppercase tracking-wider">
-                Select Smart Recovery Rail
-              </div>
-
-              {/* Option 1: 1-Click UPI */}
-              <div
-                onClick={() => setSelectedRail('upi')}
-                className={`p-3 rounded-lg border flex items-center justify-between cursor-pointer transition-colors ${
-                  selectedRail === 'upi'
-                    ? 'border-[#0066F5] bg-blue-500/5'
-                    : 'border-[var(--border-main)] bg-[var(--bg-card)] hover:border-[var(--border-subtle)]'
-                }`}
-              >
-                <div className="flex items-center space-x-2.5">
-                  <Smartphone className="w-4 h-4 text-[#0066F5]" />
-                  <div>
-                    <div className="font-semibold text-[var(--text-main)]">1-Click UPI AutoPay (Recommended)</div>
-                    <div className="text-[10px] text-[var(--text-muted)]">Google Pay, PhonePe, Paytm • 98% Success</div>
-                  </div>
-                </div>
-                <div className="w-3.5 h-3.5 rounded-full border border-[var(--border-main)] flex items-center justify-center">
-                  {selectedRail === 'upi' && <div className="w-2 h-2 rounded-full bg-[#0066F5]" />}
-                </div>
-              </div>
-
-              {/* Option 2: NetBanking */}
-              <div
-                onClick={() => setSelectedRail('netbanking')}
-                className={`p-3 rounded-lg border flex items-center justify-between cursor-pointer transition-colors ${
-                  selectedRail === 'netbanking'
-                    ? 'border-[#0066F5] bg-blue-500/5'
-                    : 'border-[var(--border-main)] bg-[var(--bg-card)] hover:border-[var(--border-subtle)]'
-                }`}
-              >
-                <div className="flex items-center space-x-2.5">
-                  <Building className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                  <div>
-                    <div className="font-semibold text-[var(--text-main)]">Direct NetBanking</div>
-                    <div className="text-[10px] text-[var(--text-muted)]">HDFC, ICICI, SBI, Axis • Zero Timeout Risk</div>
-                  </div>
-                </div>
-                <div className="w-3.5 h-3.5 rounded-full border border-[var(--border-main)] flex items-center justify-center">
-                  {selectedRail === 'netbanking' && <div className="w-2 h-2 rounded-full bg-[#0066F5]" />}
-                </div>
-              </div>
-
-              {/* Option 3: Dynamic Payment Link */}
-              <div
-                onClick={() => setSelectedRail('link')}
-                className={`p-3 rounded-lg border flex items-center justify-between cursor-pointer transition-colors ${
-                  selectedRail === 'link'
-                    ? 'border-[#0066F5] bg-blue-500/5'
-                    : 'border-[var(--border-main)] bg-[var(--bg-card)] hover:border-[var(--border-subtle)]'
-                }`}
-              >
-                <div className="flex items-center space-x-2.5">
-                  <CreditCard className="w-4 h-4 text-purple-600 dark:text-purple-400" />
-                  <div>
-                    <div className="font-semibold text-[var(--text-main)]">SMS / WhatsApp 1-Click Link</div>
-                    <div className="text-[10px] text-[var(--text-muted)]">Pay later on your mobile browser (DPDP Consent Verified)</div>
-                  </div>
-                </div>
-                <div className="w-3.5 h-3.5 rounded-full border border-[var(--border-main)] flex items-center justify-center">
-                  {selectedRail === 'link' && <div className="w-2 h-2 rounded-full bg-[#0066F5]" />}
-                </div>
-              </div>
-
-              {/* Action Button */}
-              <button
+            <Box display="flex" gap="spacing.3">
+              <Button variant="tertiary" onClick={onClose} isDisabled={processing}>
+                Cancel
+              </Button>
+              <Button
+                icon={ArrowRightIcon}
+                iconPosition="right"
+                isLoading={processing}
                 onClick={handlePay}
-                disabled={processing}
-                className="w-full mt-3 py-2.5 rounded-lg bg-[#0066F5] hover:bg-[#0052cc] text-white font-semibold text-xs flex items-center justify-center space-x-2 transition-colors cursor-pointer shadow-md disabled:opacity-50"
               >
-                {processing ? (
-                  <>
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    <span>Processing with Razorpay...</span>
-                  </>
-                ) : (
-                  <>
-                    <span>Complete Payment of ₹{Number(payment.amount).toLocaleString('en-IN')}</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </>
-                )}
-              </button>
-            </>
+                Retry payment
+              </Button>
+            </Box>
           )}
-        </div>
-
-        {/* Blade Footer */}
-        <div className="px-4 py-2.5 bg-[var(--bg-subtle)] border-t border-[var(--border-main)] flex items-center justify-between text-[10px] text-[var(--text-muted)]">
-          <div className="flex items-center space-x-1">
-            <Shield className="w-3 h-3 text-emerald-500" />
-            <span>DPDP Compliant Recovery</span>
-          </div>
-          <span>Razorpay Platform</span>
-        </div>
-      </div>
-    </div>
+        </Box>
+      </ModalFooter>
+    </Modal>
   );
 };

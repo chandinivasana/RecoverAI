@@ -41,6 +41,33 @@ export async function fetchMerchants(): Promise<MerchantProfile[]> {
   return res.json();
 }
 
+export async function fetchExperiments() {
+  const res = await fetch(`${API_BASE}/api/analytics/experiments`, { cache: 'no-store' });
+  if (!res.ok) throw new Error('Failed to fetch experiments');
+  return res.json();
+}
+
+export interface AuditChainStatus {
+  intact: boolean;
+  chained_events: number;
+  unchained_legacy_events: number;
+  head_hash?: string | null;
+  first_broken_link?: {
+    position: number;
+    audit_id: string;
+    payment_id: string;
+    event_type: string;
+    reason: string;
+    detail: string;
+  };
+}
+
+export async function verifyAuditChain(): Promise<AuditChainStatus> {
+  const res = await fetch(`${API_BASE}/api/audit/verify`, { cache: 'no-store' });
+  if (!res.ok) throw new Error('Failed to verify audit chain');
+  return res.json();
+}
+
 export async function fetchAnomalies() {
   const res = await fetch(`${API_BASE}/api/analytics/anomalies`, { cache: 'no-store' });
   if (!res.ok) throw new Error('Failed to fetch anomalies');

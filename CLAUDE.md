@@ -10,7 +10,7 @@
 
 ## Architecture & Code Standards
 - **Python**: Python 3.9+, FastAPI, Pydantic v2, SQLAlchemy / SQLite.
-- **Frontend**: Next.js 14 (App Router), TypeScript, Tailwind CSS, Lucide Icons, Recharts, Framer Motion.
+- **Frontend**: Next.js 16 (App Router), TypeScript, **@razorpay/blade** (Razorpay's production design system — components, tokens, icons, charts) on styled-components v5. Conventions: `.agents/frontend-blade.md`. No Tailwind, no hardcoded colors — Blade tokens only.
 - **Policy Enforcement**: Any code path attempting recovery MUST pass through `PolicyEngine.evaluate()`.
 - **Currency Format**: INR (₹) formatting with Indian numbering format (lakhs/crores).
 - **Safety Priority**: When uncertain, escalate to human or stop. Never perform unapproved autonomous financial actions.

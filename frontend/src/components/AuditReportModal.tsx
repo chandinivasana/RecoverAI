@@ -1,156 +1,414 @@
 'use client';
 
-import React from 'react';
-import { X, Printer, ShieldCheck, CheckCircle2, FileText } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import {
+  Alert,
+  Amount,
+  Badge,
+  Box,
+  Button,
+  Code,
+  Divider,
+  Heading,
+  Modal,
+  ModalBody,
+  ModalFooter,
+  ModalHeader,
+  Spinner,
+  Text,
+  useToast,
+  CheckCircleIcon,
+  PrinterIcon,
+} from '@razorpay/blade/components';
+import { verifyAuditChain } from '../lib/api';
+import type { AuditChainStatus } from '../lib/api';
 
 interface AuditReportModalProps {
+  // Full payment-detail payload from GET /api/payments/{id} (shape owned by the
+  // backend; typed loosely here on purpose — the report renders defensively).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   paymentData: any;
   onClose: () => void;
 }
 
+type StatusColor = 'positive' | 'negative' | 'notice' | 'information' | 'neutral';
+
+const statusColor = (status?: string): StatusColor => {
+  switch (status) {
+    case 'recovered':
+    case 'success':
+      return 'positive';
+    case 'failed':
+      return 'negative';
+    case 'escalated_to_human':
+      return 'notice';
+    case 'processing_recovery':
+      return 'information';
+    case 'stopped':
+    case 'permanently_failed':
+    default:
+      return 'neutral';
+  }
+};
+
+const Fact: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
+  <Box display="flex" flexDirection="column" gap="spacing.1">
+    <Text variant="caption" size="small" color="surface.text.gray.muted">
+      {label}
+    </Text>
+    {children}
+  </Box>
+);
+
+const HashChip: React.FC<{ label: string; hash?: string | null }> = ({ label, hash }) => {
+  if (!hash) return null;
+  return (
+    <Text variant="caption" size="small" color="surface.text.gray.muted">
+      {label} <Code size="small">{`${hash.slice(0, 12)}…${hash.slice(-6)}`}</Code>
+    </Text>
+  );
+};
+
 export const AuditReportModal: React.FC<AuditReportModalProps> = ({ paymentData, onClose }) => {
+  const toast = useToast();
+  const [chain, setChain] = useState<AuditChainStatus | null>(null);
+  const [isVerifying, setIsVerifying] = useState(true);
+  const [generatedAt] = useState(() => new Date().toISOString());
+
+  useEffect(() => {
+    let cancelled = false;
+    verifyAuditChain()
+      .then((status) => {
+        if (!cancelled) setChain(status);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setChain(null);
+          toast.show({ content: 'Audit chain verification could not be loaded', color: 'negative' });
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setIsVerifying(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   if (!paymentData || !paymentData.payment) return null;
+
   const p = paymentData.payment;
   const decisions = paymentData.decisions || [];
   const executions = paymentData.executions || [];
   const audit = paymentData.audit_trail || [];
+  const decision = decisions[0];
+  const latestExecution = executions.length > 0 ? executions[executions.length - 1] : null;
+  const currency = p.currency || 'INR';
 
   const handlePrint = () => {
     window.print();
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4 print:p-0 print:bg-white">
-      <div className="bg-[var(--bg-card)] border border-[var(--border-main)] rounded-xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden font-sans text-xs print:border-none print:shadow-none print:max-h-full">
-        {/* Header (No print controls during print) */}
-        <div className="p-4 border-b border-[var(--border-main)] bg-[var(--bg-subtle)] flex items-center justify-between print:hidden">
-          <div className="flex items-center space-x-2">
-            <FileText className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-            <span className="font-semibold text-xs text-[var(--text-main)]">
-              Compliance & Decision Audit Certificate ({p.payment_id})
-            </span>
-          </div>
-          <div className="flex items-center space-x-2">
-            <button
-              onClick={handlePrint}
-              className="px-3 py-1 rounded-md text-xs font-medium bg-[#0066F5] hover:bg-blue-600 text-white flex items-center space-x-1.5 cursor-pointer shadow-xs"
-            >
-              <Printer className="w-3.5 h-3.5" />
-              <span>Print / Save PDF</span>
-            </button>
-            <button
-              onClick={onClose}
-              className="p-1 rounded-md text-[var(--text-muted)] hover:text-[var(--text-main)] cursor-pointer"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
+    <Modal
+      isOpen={true}
+      onDismiss={onClose}
+      size="large"
+      zIndex={1100}
+      accessibilityLabel="Compliance and decision audit report"
+    >
+      <ModalHeader
+        title="Compliance & Decision Audit Report"
+        subtitle={`Ref: ${p.payment_id}`}
+        trailing={
+          <Button variant="tertiary" size="small" icon={PrinterIcon} onClick={handlePrint}>
+            Print / Save PDF
+          </Button>
+        }
+      />
 
-        {/* Printable Document Body */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-5 print:p-8">
-          {/* Document Letterhead */}
-          <div className="flex justify-between items-start border-b border-[var(--border-main)] pb-4">
-            <div>
-              <div className="flex items-center space-x-2">
-                <div className="w-6 h-6 rounded bg-[#0066F5] text-white flex items-center justify-center font-black text-xs">
-                  R
-                </div>
-                <span className="font-bold text-sm text-[var(--text-main)]">RecoverAI Compliance Engine</span>
-              </div>
-              <div className="text-[10px] text-[var(--text-muted)] mt-1">
-                Deterministic Policy Audit & DPDP Compliance Attestation
-              </div>
-            </div>
-            <div className="text-right font-mono text-[10px] text-[var(--text-muted)]">
-              <div>Ref: {p.payment_id}</div>
-              <div>Generated: {new Date().toISOString()}</div>
-              <div className="text-emerald-600 dark:text-emerald-400 font-semibold">Status: VERIFIED_AUDITABLE</div>
-            </div>
-          </div>
+      <ModalBody>
+        <Box display="flex" flexDirection="column" gap="spacing.6">
+          {/* Letterhead */}
+          <Box
+            display="flex"
+            justifyContent="space-between"
+            alignItems="flex-start"
+            gap="spacing.4"
+            flexWrap="wrap"
+          >
+            <Box display="flex" flexDirection="column" gap="spacing.1">
+              <Heading size="small" as="h3">
+                RecoverAI Compliance Engine
+              </Heading>
+              <Text variant="caption" size="small" color="surface.text.gray.muted">
+                Deterministic policy audit for payment recovery decisions
+              </Text>
+            </Box>
+            <Box display="flex" flexDirection="column" alignItems="flex-end" gap="spacing.1">
+              <Code size="small">{String(p.payment_id)}</Code>
+              <Text variant="caption" size="small" color="surface.text.gray.muted">
+                Generated {generatedAt}
+              </Text>
+            </Box>
+          </Box>
 
-          {/* Section 1: Transaction & Customer Details */}
-          <div className="space-y-1.5">
-            <h4 className="font-semibold text-[11px] text-[var(--text-main)] uppercase tracking-wider">
+          <Divider />
+
+          {/* Section 1: Transaction & Customer Context */}
+          <Box display="flex" flexDirection="column" gap="spacing.3">
+            <Heading size="small" as="h4">
               1. Transaction & Customer Context
-            </h4>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 bg-[var(--bg-subtle)] p-3 rounded-md font-mono text-[11px]">
-              <div>
-                <span className="text-[10px] text-[var(--text-muted)] block">Amount</span>
-                <span className="font-bold text-[var(--text-main)]">₹{Number(p.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-              </div>
-              <div>
-                <span className="text-[10px] text-[var(--text-muted)] block">Customer</span>
-                <span className="text-[var(--text-main)] truncate block">{p.customer_name}</span>
-              </div>
-              <div>
-                <span className="text-[10px] text-[var(--text-muted)] block">Payment Method</span>
-                <span className="text-[var(--text-main)] uppercase">{p.payment_method}</span>
-              </div>
-              <div>
-                <span className="text-[10px] text-[var(--text-muted)] block">Settled Recovered</span>
-                <span className="font-bold text-emerald-600 dark:text-emerald-400">₹{Number(p.amount_recovered).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-              </div>
-            </div>
-          </div>
+            </Heading>
+            <Box
+              display="grid"
+              gridTemplateColumns={{ base: '1fr 1fr', m: 'repeat(4, 1fr)' }}
+              gap="spacing.4"
+              padding="spacing.4"
+              backgroundColor="surface.background.gray.subtle"
+              borderRadius="medium"
+            >
+              <Fact label="Amount">
+                <Amount
+                  value={Number(p.amount) || 0}
+                  currency={currency}
+                  type="body"
+                  size="medium"
+                  weight="semibold"
+                />
+              </Fact>
+              <Fact label="Customer">
+                <Text size="small" weight="medium" truncateAfterLines={1}>
+                  {p.customer_name || '—'}
+                </Text>
+              </Fact>
+              <Fact label="Payment Method">
+                <Text size="small" weight="medium">
+                  {String(p.payment_method || '—').toUpperCase()}
+                </Text>
+              </Fact>
+              <Fact label="Amount Recovered">
+                <Amount
+                  value={Number(p.amount_recovered) || 0}
+                  currency={currency}
+                  type="body"
+                  size="medium"
+                  weight="semibold"
+                  color={
+                    Number(p.amount_recovered) > 0
+                      ? 'feedback.text.positive.intense'
+                      : 'surface.text.gray.muted'
+                  }
+                />
+              </Fact>
+              <Fact label="Status">
+                <Box>
+                  <Badge size="small" color={statusColor(p.status)}>
+                    {String(p.status || 'unknown')}
+                  </Badge>
+                </Box>
+              </Fact>
+            </Box>
+          </Box>
 
-          {/* Section 2: Failure Diagnostic & Policy Validation */}
-          <div className="space-y-1.5">
-            <h4 className="font-semibold text-[11px] text-[var(--text-main)] uppercase tracking-wider">
+          {/* Section 2: Failure Diagnosis & Policy Sign-off */}
+          <Box display="flex" flexDirection="column" gap="spacing.3">
+            <Heading size="small" as="h4">
               2. Failure Diagnosis & Policy Sign-off
-            </h4>
-            <div className="border border-[var(--border-main)] rounded-md p-3 space-y-2 text-[11px]">
-              <div>
-                <span className="text-[var(--text-muted)]">Diagnostic Reason: </span>
-                <span className="text-[var(--text-main)] font-medium">{p.failure_reason} (Code: {p.error_code})</span>
-              </div>
-              {decisions.length > 0 && (
-                <div className="pt-2 border-t border-[var(--border-main)] font-mono space-y-1">
-                  <div>
-                    <span className="text-[var(--text-muted)]">Recommended Action: </span>
-                    <span className="text-purple-600 dark:text-purple-400 font-semibold">{decisions[0].recommended_action}</span>
-                    <span className="text-[var(--text-muted)] ml-2">(Est. Probability: {Math.round(decisions[0].recovery_probability * 100)}%)</span>
-                  </div>
-                  <div className="text-[10px] text-[var(--text-muted)]">
-                    Rationale: {decisions[0].reason}
-                  </div>
-                </div>
+            </Heading>
+            <Box
+              borderWidth="thin"
+              borderColor="surface.border.gray.muted"
+              borderRadius="medium"
+              padding="spacing.4"
+              display="flex"
+              flexDirection="column"
+              gap="spacing.3"
+            >
+              <Text size="small">
+                <Text as="span" size="small" color="surface.text.gray.muted">
+                  Diagnostic reason:{' '}
+                </Text>
+                <Text as="span" size="small" weight="medium">
+                  {p.failure_reason || 'Not recorded'}
+                </Text>{' '}
+                {p.error_code ? <Code size="small">{String(p.error_code)}</Code> : null}
+              </Text>
+
+              {decision ? (
+                <>
+                  <Divider />
+                  <Box display="flex" alignItems="center" gap="spacing.3" flexWrap="wrap">
+                    <Text size="small" color="surface.text.gray.muted">
+                      Recommended action
+                    </Text>
+                    <Badge size="small" color="information">
+                      {String(decision.recommended_action)}
+                    </Badge>
+                    {typeof decision.recovery_probability === 'number' && (
+                      <Text size="small" color="surface.text.gray.muted">
+                        Est. probability {Math.round(decision.recovery_probability * 100)}%
+                      </Text>
+                    )}
+                  </Box>
+                  {decision.reason && (
+                    <Text size="small" color="surface.text.gray.subtle">
+                      Rationale: {decision.reason}
+                    </Text>
+                  )}
+                  {decision.critic_verdict && (
+                    <Text size="small" color="surface.text.gray.subtle">
+                      Critic verdict: {decision.critic_verdict}
+                    </Text>
+                  )}
+                </>
+              ) : (
+                <Text size="small" color="surface.text.gray.muted">
+                  No recovery decision recorded for this payment.
+                </Text>
               )}
-            </div>
-          </div>
 
-          {/* Section 3: Chronological Audit Trail */}
-          <div className="space-y-1.5">
-            <h4 className="font-semibold text-[11px] text-[var(--text-main)] uppercase tracking-wider">
+              {latestExecution && (
+                <>
+                  <Divider />
+                  <Box display="flex" alignItems="center" gap="spacing.3" flexWrap="wrap">
+                    <Text size="small" color="surface.text.gray.muted">
+                      Policy-gated execution
+                    </Text>
+                    <Code size="small">{String(latestExecution.action)}</Code>
+                    <Badge size="small" color={statusColor(latestExecution.status)}>
+                      {String(latestExecution.status || 'unknown')}
+                    </Badge>
+                    {Number(latestExecution.amount_recovered) > 0 && (
+                      <Amount
+                        value={Number(latestExecution.amount_recovered)}
+                        currency={currency}
+                        type="body"
+                        size="small"
+                        weight="semibold"
+                        color="feedback.text.positive.intense"
+                      />
+                    )}
+                  </Box>
+                  {latestExecution.result && (
+                    <Text size="small" color="surface.text.gray.subtle">
+                      Result: {latestExecution.result}
+                    </Text>
+                  )}
+                </>
+              )}
+            </Box>
+          </Box>
+
+          {/* Section 3: Tamper-Evident SHA-256 Audit Chain */}
+          <Box display="flex" flexDirection="column" gap="spacing.3">
+            <Heading size="small" as="h4">
               3. Tamper-Evident SHA-256 Audit Chain
-            </h4>
-            <div className="border border-[var(--border-main)] rounded-md divide-y divide-[var(--border-main)] font-mono text-[10px]">
-              {audit.map((a: any, i: number) => (
-                <div key={a.audit_id || i} className="p-2 flex items-start space-x-2">
-                  <span className="text-[var(--text-muted)] shrink-0">{new Date(a.timestamp).toLocaleTimeString()}</span>
-                  <span className="text-blue-600 dark:text-blue-400 font-semibold shrink-0">[{a.actor}]</span>
-                  <span className="text-[var(--text-main)] font-sans flex-1">
-                    <span className="font-mono font-semibold">{a.event_type}: </span>
-                    {a.metadata?.reason || a.metadata?.result || a.metadata?.rule || JSON.stringify(a.metadata)}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
+            </Heading>
 
-          {/* Compliance Attestation Seal */}
-          <div className="p-3 rounded-md bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-between text-[10px]">
-            <div className="flex items-center space-x-2">
-              <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-              <div>
-                <div className="font-semibold text-emerald-700 dark:text-emerald-300">DPDP Act (2023) & RBI Security Standard Verified</div>
-                <div className="text-emerald-600 dark:text-emerald-400">Zero unauthorized monetary movement • Fail-closed policy boundary verified</div>
-              </div>
-            </div>
-            <div className="font-mono font-bold text-slate-400">SEAL_OK</div>
-          </div>
-        </div>
-      </div>
-    </div>
+            {isVerifying ? (
+              <Box display="flex" alignItems="center" padding="spacing.3">
+                <Spinner
+                  accessibilityLabel="Verifying audit chain"
+                  label="Verifying audit chain…"
+                  size="medium"
+                  color="primary"
+                />
+              </Box>
+            ) : chain ? (
+              chain.intact ? (
+                <Box display="flex" alignItems="center" gap="spacing.3" flexWrap="wrap">
+                  <Badge color="positive" emphasis="subtle" icon={CheckCircleIcon} size="medium">
+                    {`AUDIT CHAIN INTACT · ${chain.chained_events} events`}
+                  </Badge>
+                  <HashChip label="head" hash={chain.head_hash} />
+                  {chain.unchained_legacy_events > 0 && (
+                    <Text variant="caption" size="small" color="surface.text.gray.muted">
+                      {chain.unchained_legacy_events} legacy events predate the chain
+                    </Text>
+                  )}
+                </Box>
+              ) : (
+                <Alert
+                  color="negative"
+                  emphasis="intense"
+                  isDismissible={false}
+                  isFullWidth
+                  title="Audit chain broken"
+                  description={
+                    chain.first_broken_link
+                      ? `First broken link at position ${chain.first_broken_link.position} — audit ${chain.first_broken_link.audit_id} (${chain.first_broken_link.event_type}): ${chain.first_broken_link.reason}`
+                      : 'The SHA-256 hash chain failed verification.'
+                  }
+                />
+              )
+            ) : (
+              <Alert
+                color="negative"
+                isDismissible={false}
+                isFullWidth
+                title="Chain verification unavailable"
+                description="The audit verification API could not be reached — no integrity status is claimed for this report."
+              />
+            )}
+
+            {audit.length === 0 ? (
+              <Text size="small" color="surface.text.gray.muted">
+                No audit events recorded for this payment.
+              </Text>
+            ) : (
+              <Box
+                borderWidth="thin"
+                borderColor="surface.border.gray.muted"
+                borderRadius="medium"
+              >
+                {/* eslint-disable-next-line @typescript-eslint/no-explicit-any -- backend-owned audit event shape */}
+                {audit.map((a: any, i: number) => (
+                  <Box key={a.audit_id || i}>
+                    {i > 0 && <Divider />}
+                    <Box
+                      padding="spacing.3"
+                      display="flex"
+                      gap="spacing.3"
+                      alignItems="baseline"
+                      flexWrap="wrap"
+                    >
+                      <Text variant="caption" size="small" color="surface.text.gray.muted">
+                        {a.timestamp ? new Date(a.timestamp).toLocaleTimeString() : '—'}
+                      </Text>
+                      <Badge size="small" color="information">
+                        {String(a.actor || 'system')}
+                      </Badge>
+                      <Box flex="1" minWidth="200px" display="flex" flexDirection="column" gap="spacing.1">
+                        <Text size="small">
+                          <Text as="span" size="small" weight="semibold">
+                            {a.event_type}
+                          </Text>
+                          {': '}
+                          {a.metadata?.reason ||
+                            a.metadata?.result ||
+                            a.metadata?.rule ||
+                            JSON.stringify(a.metadata ?? {})}
+                        </Text>
+                        <HashChip label="hash" hash={a.entry_hash} />
+                      </Box>
+                    </Box>
+                  </Box>
+                ))}
+              </Box>
+            )}
+          </Box>
+        </Box>
+      </ModalBody>
+
+      <ModalFooter>
+        <Box display="flex" justifyContent="flex-end" width="100%">
+          <Button variant="tertiary" onClick={onClose}>
+            Close
+          </Button>
+        </Box>
+      </ModalFooter>
+    </Modal>
   );
 };

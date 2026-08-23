@@ -1,11 +1,121 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { Play, Save, CheckCircle2, RefreshCw } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import {
+  Amount,
+  Badge,
+  Box,
+  Button,
+  Card,
+  CardBody,
+  CardHeader,
+  CardHeaderBadge,
+  CardHeaderLeading,
+  CardHeaderTrailing,
+  Heading,
+  PlayIcon,
+  SaveIcon,
+  Switch,
+  Text,
+  TextInput,
+  useToast,
+} from '@razorpay/blade/components';
 import { PolicyConfig, SimulationResult } from '../types';
 import { fetchPolicies, updatePolicies, simulatePolicy } from '../lib/api';
 
+/**
+ * The simulate API also returns the basis on which the 30-day projection was
+ * computed. Defined locally because the shared SimulationResult type does not
+ * carry it (and this file must not edit src/types).
+ */
+type SimulationReport = SimulationResult & { projection_basis?: string };
+
+type BooleanRuleKey =
+  | 'require_human_high_risk'
+  | 'stop_on_repeated_failure'
+  | 'require_customer_consent_for_nudge'
+  | 'escalate_unknown_failure'
+  | 'vulcan_enabled';
+
+const BOOLEAN_RULES: Array<{ key: BooleanRuleKey; label: string; description: string }> = [
+  {
+    key: 'require_human_high_risk',
+    label: 'Mandate human sign-off for high risk',
+    description: 'High-risk recoveries always escalate to a human reviewer',
+  },
+  {
+    key: 'stop_on_repeated_failure',
+    label: 'Stop recovery on repeated failure',
+    description: 'Halt the recovery loop once retries keep failing',
+  },
+  {
+    key: 'require_customer_consent_for_nudge',
+    label: 'Require user consent for SMS/link nudges',
+    description: 'Payment-link and SMS nudges need explicit messaging consent',
+  },
+  {
+    key: 'escalate_unknown_failure',
+    label: 'Escalate unknown failure types',
+    description: 'Unrecognised error codes go to a human instead of the agent',
+  },
+  {
+    key: 'vulcan_enabled',
+    label: 'Razorpay Vulcan smart intelligence signals',
+    description: 'Use gateway health and propensity signals in decisions',
+  },
+];
+
+const errorMessage = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+
+const formatSignedInt = (value: number): string => (value > 0 ? `+${value}` : `${value}`);
+
+const formatSignedPercent = (value: number): string =>
+  `${value > 0 ? '+' : ''}${value.toFixed(1)}%`;
+
+type SignedTone = 'feedback.text.positive.intense' | 'feedback.text.negative.intense';
+
+const SignedAmount: React.FC<{ value: number; color: SignedTone }> = ({ value, color }) => (
+  <Box display="flex" alignItems="baseline" gap="spacing.1">
+    <Text size="small" weight="semibold" color={color}>
+      {value >= 0 ? '+' : '−'}
+    </Text>
+    <Amount
+      value={Math.abs(value)}
+      currency="INR"
+      type="body"
+      size="small"
+      weight="semibold"
+      color={color}
+    />
+  </Box>
+);
+
+const StatTile: React.FC<{
+  label: string;
+  caption?: React.ReactNode;
+  children: React.ReactNode;
+}> = ({ label, caption, children }) => (
+  <Box
+    flex="1"
+    minWidth="170px"
+    backgroundColor="surface.background.gray.moderate"
+    borderRadius="medium"
+    padding="spacing.4"
+    display="flex"
+    flexDirection="column"
+    gap="spacing.2"
+  >
+    <Text variant="caption" size="small" color="surface.text.gray.muted">
+      {label}
+    </Text>
+    {children}
+    {caption}
+  </Box>
+);
+
 export const PolicySimulator: React.FC = () => {
+  const toast = useToast();
+
   const [proposedConfig, setProposedConfig] = useState<PolicyConfig>({
     max_autonomous_retry_attempts: 2,
     max_autonomous_amount: 25000,
@@ -16,24 +126,34 @@ export const PolicySimulator: React.FC = () => {
     vulcan_enabled: true,
   });
 
-  const [simResult, setSimResult] = useState<SimulationResult | null>(null);
+  const [simResult, setSimResult] = useState<SimulationReport | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [saveSuccess, setSaveSuccess] = useState(false);
 
   useEffect(() => {
-    fetchPolicies().then((res) => {
-      setProposedConfig(res);
-    });
+    fetchPolicies()
+      .then((res) => {
+        setProposedConfig(res);
+      })
+      .catch((err) => {
+        toast.show({
+          content: `Failed to load current policy configuration: ${errorMessage(err)}`,
+          color: 'negative',
+        });
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleSimulate = async () => {
     setLoading(true);
     try {
-      const res = await simulatePolicy(proposedConfig, 'dev');
+      const res: SimulationReport = await simulatePolicy(proposedConfig, 'dev');
       setSimResult(res);
     } catch (err) {
-      alert('Error running simulation: ' + err);
+      toast.show({
+        content: `Error running simulation: ${errorMessage(err)}`,
+        color: 'negative',
+      });
     } finally {
       setLoading(false);
     }
@@ -43,257 +163,347 @@ export const PolicySimulator: React.FC = () => {
     setSaving(true);
     try {
       await updatePolicies(proposedConfig);
-      setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 3000);
+      toast.show({
+        content: 'Deterministic merchant policy rules persisted successfully.',
+        color: 'positive',
+      });
     } catch (err) {
-      alert('Error saving policy configuration: ' + err);
+      toast.show({
+        content: `Error saving policy configuration: ${errorMessage(err)}`,
+        color: 'negative',
+      });
     } finally {
       setSaving(false);
     }
   };
 
+  const setBooleanRule = (key: BooleanRuleKey, isChecked: boolean) => {
+    setProposedConfig((prev) => {
+      const next = { ...prev };
+      next[key] = isChecked;
+      return next;
+    });
+  };
+
+  const revenueDeltaColor =
+    simResult && simResult.revenue_delta >= 0
+      ? 'feedback.text.positive.intense'
+      : 'feedback.text.negative.intense';
+
+  const riskColor = simResult
+    ? simResult.risk_exposure_change_percent > 0
+      ? 'feedback.text.notice.intense'
+      : simResult.risk_exposure_change_percent < 0
+      ? 'feedback.text.positive.intense'
+      : 'surface.text.gray.normal'
+    : 'surface.text.gray.normal';
+
   return (
-    <div className="space-y-4">
+    <Box display="flex" flexDirection="column" gap="spacing.4">
       {/* Header */}
-      <div className="bg-[var(--bg-card)] border border-[var(--border-main)] p-4 rounded-md flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-xs">
-        <div>
-          <h2 className="text-xs font-semibold text-[var(--text-main)] uppercase tracking-wider">
-            Deterministic Policy Engine & Impact Simulator (Section 34)
-          </h2>
-          <p className="text-[11px] text-[var(--text-muted)] mt-0.5">
-            Configure hard autonomous limits and run offline simulations across historical payments
-          </p>
-        </div>
-
-        <div className="flex items-center space-x-2">
-          <button
-            onClick={handleSimulate}
-            disabled={loading}
-            className="px-3 py-1.5 rounded-md text-xs font-medium bg-[var(--bg-subtle)] hover:bg-[var(--border-main)] text-[var(--text-main)] border border-[var(--border-main)] transition-colors flex items-center space-x-1.5 disabled:opacity-50 cursor-pointer"
+      <Card padding="spacing.5" elevation="lowRaised">
+        <CardBody>
+          <Box
+            display="flex"
+            flexDirection={{ base: 'column', m: 'row' }}
+            justifyContent="space-between"
+            alignItems={{ base: 'flex-start', m: 'center' }}
+            gap="spacing.4"
           >
-            {loading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />}
-            <span>{loading ? 'Simulating...' : 'Run Simulation'}</span>
-          </button>
-
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="px-3 py-1.5 rounded-md text-xs font-medium bg-[#0066F5] hover:bg-blue-600 text-white transition-colors flex items-center space-x-1.5 disabled:opacity-50 cursor-pointer shadow-xs"
-          >
-            {saving ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-            <span>{saving ? 'Saving...' : 'Apply Live Rules'}</span>
-          </button>
-        </div>
-      </div>
-
-      {saveSuccess && (
-        <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-md text-xs text-emerald-700 dark:text-emerald-300 flex items-center space-x-2">
-          <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-          <span>Deterministic merchant policy rules persisted successfully.</span>
-        </div>
-      )}
-
-      {/* Simulator Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-        {/* Controls Column */}
-        <div className="lg:col-span-5 bg-[var(--bg-card)] border border-[var(--border-main)] rounded-md p-4 space-y-4 shadow-xs">
-          <h3 className="text-xs font-semibold text-[var(--text-main)] uppercase tracking-wider">
-            Rule Parameters
-          </h3>
-
-          {/* Amount Slider */}
-          <div className="space-y-1.5 bg-[var(--bg-subtle)] border border-[var(--border-main)] p-3 rounded-md">
-            <div className="flex justify-between items-center text-xs">
-              <span className="text-[var(--text-muted)]">Autonomous Amount Cap</span>
-              <span className="font-mono font-bold text-[var(--text-main)]">
-                ₹{Number(proposedConfig.max_autonomous_amount).toLocaleString('en-IN')}
-              </span>
-            </div>
-            <input
-              type="range"
-              min="5000"
-              max="100000"
-              step="5000"
-              value={proposedConfig.max_autonomous_amount}
-              onChange={(e) =>
-                setProposedConfig({ ...proposedConfig, max_autonomous_amount: Number(e.target.value) })
-              }
-              className="w-full h-1.5 bg-[var(--border-main)] rounded appearance-none cursor-pointer accent-[#0066F5]"
-            />
-            <div className="flex justify-between text-[10px] text-[var(--text-muted)] font-mono">
-              <span>₹5k</span>
-              <span>₹50k</span>
-              <span>₹100k</span>
-            </div>
-          </div>
-
-          {/* Retry Slider */}
-          <div className="space-y-1.5 bg-[var(--bg-subtle)] border border-[var(--border-main)] p-3 rounded-md">
-            <div className="flex justify-between items-center text-xs">
-              <span className="text-[var(--text-muted)]">Max Autonomous Retry Count</span>
-              <span className="font-mono font-bold text-blue-600 dark:text-blue-400">
-                {proposedConfig.max_autonomous_retry_attempts} retries
-              </span>
-            </div>
-            <input
-              type="range"
-              min="0"
-              max="5"
-              step="1"
-              value={proposedConfig.max_autonomous_retry_attempts}
-              onChange={(e) =>
-                setProposedConfig({ ...proposedConfig, max_autonomous_retry_attempts: Number(e.target.value) })
-              }
-              className="w-full h-1.5 bg-[var(--border-main)] rounded appearance-none cursor-pointer accent-[#0066F5]"
-            />
-            <div className="flex justify-between text-[10px] text-[var(--text-muted)] font-mono">
-              <span>0 (No Retries)</span>
-              <span>2 (Default)</span>
-              <span>5 (Max)</span>
-            </div>
-          </div>
-
-          {/* Toggles */}
-          <div className="space-y-2.5 pt-1 text-xs">
-            <label className="flex items-center justify-between p-2.5 bg-[var(--bg-subtle)] border border-[var(--border-main)] rounded-md cursor-pointer">
-              <span className="text-[var(--text-main)]">Mandate Human Sign-Off for High Risk</span>
-              <input
-                type="checkbox"
-                checked={proposedConfig.require_human_high_risk}
-                onChange={(e) =>
-                  setProposedConfig({ ...proposedConfig, require_human_high_risk: e.target.checked })
-                }
-                className="w-3.5 h-3.5 rounded bg-[var(--bg-card)] border-[var(--border-main)] text-blue-600 focus:ring-0 cursor-pointer"
-              />
-            </label>
-
-            <label className="flex items-center justify-between p-2.5 bg-[var(--bg-subtle)] border border-[var(--border-main)] rounded-md cursor-pointer">
-              <span className="text-[var(--text-main)]">Stop Recovery on Repeated Failure</span>
-              <input
-                type="checkbox"
-                checked={proposedConfig.stop_on_repeated_failure}
-                onChange={(e) =>
-                  setProposedConfig({ ...proposedConfig, stop_on_repeated_failure: e.target.checked })
-                }
-                className="w-3.5 h-3.5 rounded bg-[var(--bg-card)] border-[var(--border-main)] text-blue-600 focus:ring-0 cursor-pointer"
-              />
-            </label>
-
-            <label className="flex items-center justify-between p-2.5 bg-[var(--bg-subtle)] border border-[var(--border-main)] rounded-md cursor-pointer">
-              <span className="text-[var(--text-main)]">Require User Consent for SMS/Link Nudges</span>
-              <input
-                type="checkbox"
-                checked={proposedConfig.require_customer_consent_for_nudge}
-                onChange={(e) =>
-                  setProposedConfig({ ...proposedConfig, require_customer_consent_for_nudge: e.target.checked })
-                }
-                className="w-3.5 h-3.5 rounded bg-[var(--bg-card)] border-[var(--border-main)] text-blue-600 focus:ring-0 cursor-pointer"
-              />
-            </label>
-
-            <label className="flex items-center justify-between p-2.5 bg-[var(--bg-subtle)] border border-[var(--border-main)] rounded-md cursor-pointer">
-              <span className="text-[var(--text-main)]">Razorpay Vulcan Smart Intelligence Signals</span>
-              <input
-                type="checkbox"
-                checked={proposedConfig.vulcan_enabled}
-                onChange={(e) =>
-                  setProposedConfig({ ...proposedConfig, vulcan_enabled: e.target.checked })
-                }
-                className="w-3.5 h-3.5 rounded bg-[var(--bg-card)] border-[var(--border-main)] text-blue-600 focus:ring-0 cursor-pointer"
-              />
-            </label>
-          </div>
-        </div>
-
-        {/* Simulation Output Column */}
-        <div className="lg:col-span-7">
-          {simResult ? (
-            <div className="bg-[var(--bg-card)] border border-[var(--border-main)] rounded-md p-5 space-y-4 shadow-xs">
-              <div className="flex items-center justify-between pb-2 border-b border-[var(--border-main)]">
-                <h3 className="text-xs font-semibold text-[var(--text-main)] uppercase tracking-wider">
-                  Simulation Report ({simResult.total_evaluated} Transactions)
-                </h3>
-                <span className="text-[10px] font-mono text-[var(--text-muted)]">Offline Evaluation</span>
-              </div>
-
-              {/* KPI Deltas */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="bg-[var(--bg-subtle)] border border-[var(--border-main)] p-3.5 rounded-md">
-                  <div className="text-[10px] text-[var(--text-muted)] uppercase font-mono">Projected Recovered</div>
-                  <div className="text-lg font-bold text-emerald-600 dark:text-emerald-400 font-mono mt-1">
-                    ₹{Number(simResult.simulated_recovered_revenue).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                  </div>
-                  <div className="text-[10px] text-[var(--text-muted)] font-mono mt-1">
-                    Delta: <span className={simResult.revenue_delta >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}>
-                      {simResult.revenue_delta >= 0 ? '+' : ''}₹{Number(simResult.revenue_delta).toLocaleString('en-IN')}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="bg-[var(--bg-subtle)] border border-[var(--border-main)] p-3.5 rounded-md">
-                  <div className="text-[10px] text-[var(--text-muted)] uppercase font-mono">Autonomous Actions</div>
-                  <div className="text-lg font-bold text-[var(--text-main)] font-mono mt-1">
-                    {simResult.simulated_autonomous_recoveries}
-                  </div>
-                  <div className="text-[10px] text-[var(--text-muted)] font-mono mt-1">
-                    Baseline: {simResult.baseline_autonomous_recoveries}
-                  </div>
-                </div>
-
-                <div className="bg-[var(--bg-subtle)] border border-[var(--border-main)] p-3.5 rounded-md">
-                  <div className="text-[10px] text-[var(--text-muted)] uppercase font-mono">Human Escalations</div>
-                  <div className="text-lg font-bold text-amber-600 dark:text-amber-400 font-mono mt-1">
-                    {simResult.simulated_human_escalations}
-                  </div>
-                  <div className="text-[10px] text-[var(--text-muted)] font-mono mt-1">
-                    Delta: {simResult.escalations_delta > 0 ? `+${simResult.escalations_delta}` : simResult.escalations_delta}
-                  </div>
-                </div>
-              </div>
-
-              {/* Financial ROI & Monthly Yield Projection Banner */}
-              <div className="p-3.5 bg-blue-500/10 border border-blue-500/30 rounded-md flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                <div>
-                  <div className="text-[10px] font-mono uppercase font-bold text-blue-600 dark:text-blue-400">
-                    Projected 30-Day Financial Impact & Break-Even ROI
-                  </div>
-                  <div className="text-xs text-[var(--text-main)] font-medium mt-0.5">
-                    Estimated Net Monthly Revenue Gain: <span className="font-bold text-emerald-600 dark:text-emerald-400 font-mono">+₹{Number(simResult.projected_monthly_revenue_gain || (simResult.revenue_delta * 3.75)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}/mo</span>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <span className="px-2 py-0.5 rounded bg-blue-600 text-white font-mono text-[10px] font-bold">
-                    {simResult.estimated_roi_multiplier || 14.2}x Action Cost ROI
-                  </span>
-                </div>
-              </div>
-
-              {/* Explanation Summary */}
-              <div className="p-3 bg-[var(--bg-subtle)] border border-[var(--border-main)] rounded-md space-y-1">
-                <div className="text-[10px] font-mono uppercase text-[var(--text-muted)] font-semibold">
-                  Risk & Policy Analysis
-                </div>
-                <p className="text-xs text-[var(--text-main)] leading-relaxed font-sans">
-                  {simResult.explanation}
-                </p>
-              </div>
-            </div>
-          ) : (
-            <div className="bg-[var(--bg-card)] border border-dashed border-[var(--border-main)] rounded-md p-10 text-center flex flex-col items-center justify-center h-full">
-              <div className="text-xs font-semibold text-[var(--text-main)]">Ready to Simulate</div>
-              <p className="text-[11px] text-[var(--text-muted)] max-w-sm mt-1 mb-3">
-                Adjust parameter sliders on the left and click Run Simulation to project net monetary yield.
-              </p>
-              <button
+            <Box>
+              <Heading size="small">
+                Deterministic Policy Engine &amp; Impact Simulator (Section 34)
+              </Heading>
+              <Text size="small" color="surface.text.gray.muted" marginTop="spacing.1">
+                Configure hard autonomous limits and run offline simulations across historical
+                payments
+              </Text>
+            </Box>
+            <Box display="flex" gap="spacing.3" flexShrink="0">
+              <Button
+                variant="secondary"
+                icon={PlayIcon}
+                isLoading={loading}
                 onClick={handleSimulate}
-                className="px-3 py-1.5 rounded-md text-xs font-medium bg-[#0066F5] hover:bg-blue-600 text-white transition-colors cursor-pointer shadow-xs"
               >
                 Run Simulation
-              </button>
-            </div>
+              </Button>
+              <Button variant="primary" icon={SaveIcon} isLoading={saving} onClick={handleSave}>
+                Apply Live Rules
+              </Button>
+            </Box>
+          </Box>
+        </CardBody>
+      </Card>
+
+      {/* Simulator layout */}
+      <Box display="flex" flexDirection={{ base: 'column', l: 'row' }} gap="spacing.4">
+        {/* Rule parameters */}
+        <Box width={{ base: '100%', l: '40%' }} flexShrink="0">
+          <Card padding="spacing.5" height="100%">
+            <CardHeader>
+              <CardHeaderLeading
+                title="Rule Parameters"
+                subtitle="Hard limits enforced by the policy engine on every recovery"
+              />
+            </CardHeader>
+            <CardBody>
+              <Box display="flex" flexDirection="column" gap="spacing.4">
+                <TextInput
+                  label="Autonomous amount cap"
+                  name="max_autonomous_amount"
+                  type="number"
+                  prefix="₹"
+                  value={String(proposedConfig.max_autonomous_amount)}
+                  onChange={({ value }) =>
+                    setProposedConfig((prev) => ({
+                      ...prev,
+                      max_autonomous_amount: value ? Number(value) : 0,
+                    }))
+                  }
+                  helpText="Maximum amount the agent may act on without human sign-off"
+                />
+
+                <TextInput
+                  label="Max autonomous retry count"
+                  name="max_autonomous_retry_attempts"
+                  type="number"
+                  suffix="retries"
+                  value={String(proposedConfig.max_autonomous_retry_attempts)}
+                  onChange={({ value }) =>
+                    setProposedConfig((prev) => ({
+                      ...prev,
+                      max_autonomous_retry_attempts: value ? Number(value) : 0,
+                    }))
+                  }
+                  helpText="0 disables autonomous retries entirely"
+                />
+
+                <Box display="flex" flexDirection="column" gap="spacing.3">
+                  {BOOLEAN_RULES.map((rule) => (
+                    <Box
+                      key={rule.key}
+                      display="flex"
+                      justifyContent="space-between"
+                      alignItems="center"
+                      gap="spacing.4"
+                      padding="spacing.3"
+                      backgroundColor="surface.background.gray.moderate"
+                      borderRadius="medium"
+                    >
+                      <Box>
+                        <Text size="small" weight="medium">
+                          {rule.label}
+                        </Text>
+                        <Text variant="caption" size="small" color="surface.text.gray.muted">
+                          {rule.description}
+                        </Text>
+                      </Box>
+                      <Switch
+                        accessibilityLabel={rule.label}
+                        isChecked={Boolean(proposedConfig[rule.key])}
+                        onChange={({ isChecked }) => setBooleanRule(rule.key, isChecked)}
+                      />
+                    </Box>
+                  ))}
+                </Box>
+              </Box>
+            </CardBody>
+          </Card>
+        </Box>
+
+        {/* Simulation output */}
+        <Box flex="1" minWidth="0px">
+          {simResult ? (
+            <Card padding="spacing.5" height="100%">
+              <CardHeader>
+                <CardHeaderLeading
+                  title="Simulation Report"
+                  subtitle={`${simResult.total_evaluated} historical transactions evaluated`}
+                />
+                <CardHeaderTrailing
+                  visual={<CardHeaderBadge color="information">Offline evaluation</CardHeaderBadge>}
+                />
+              </CardHeader>
+              <CardBody>
+                <Box display="flex" flexDirection="column" gap="spacing.4">
+                  {/* KPI tiles */}
+                  <Box display="flex" flexWrap="wrap" gap="spacing.3">
+                    <StatTile
+                      label="Projected recovered revenue"
+                      caption={
+                        <Box display="flex" alignItems="baseline" gap="spacing.2">
+                          <Text variant="caption" size="small" color="surface.text.gray.muted">
+                            Delta
+                          </Text>
+                          <SignedAmount
+                            value={simResult.revenue_delta}
+                            color={revenueDeltaColor}
+                          />
+                        </Box>
+                      }
+                    >
+                      <Amount
+                        value={simResult.simulated_recovered_revenue}
+                        currency="INR"
+                        type="heading"
+                        size="large"
+                        weight="semibold"
+                        color="feedback.text.positive.intense"
+                      />
+                    </StatTile>
+
+                    <StatTile
+                      label="Autonomous recoveries"
+                      caption={
+                        <Text variant="caption" size="small" color="surface.text.gray.muted">
+                          Baseline {simResult.baseline_autonomous_recoveries} → Simulated{' '}
+                          {simResult.simulated_autonomous_recoveries}
+                        </Text>
+                      }
+                    >
+                      <Heading size="large">{simResult.simulated_autonomous_recoveries}</Heading>
+                    </StatTile>
+
+                    <StatTile
+                      label="Human escalations"
+                      caption={
+                        <Text variant="caption" size="small" color="surface.text.gray.muted">
+                          Delta {formatSignedInt(simResult.escalations_delta)} vs baseline{' '}
+                          {simResult.baseline_human_escalations}
+                        </Text>
+                      }
+                    >
+                      <Heading size="large" color="feedback.text.notice.intense">
+                        {simResult.simulated_human_escalations}
+                      </Heading>
+                    </StatTile>
+
+                    <StatTile label="Risk exposure change">
+                      <Heading size="large" color={riskColor}>
+                        {formatSignedPercent(simResult.risk_exposure_change_percent)}
+                      </Heading>
+                    </StatTile>
+                  </Box>
+
+                  {/* 30-day projection — values come only from the API response */}
+                  <Box
+                    backgroundColor="surface.background.primary.subtle"
+                    borderRadius="medium"
+                    padding="spacing.4"
+                    display="flex"
+                    flexDirection="column"
+                    gap="spacing.2"
+                  >
+                    <Box
+                      display="flex"
+                      flexDirection={{ base: 'column', m: 'row' }}
+                      justifyContent="space-between"
+                      alignItems={{ base: 'flex-start', m: 'center' }}
+                      gap="spacing.3"
+                    >
+                      <Box>
+                        <Text size="small" weight="semibold" color="surface.text.primary.normal">
+                          Projected 30-day financial impact
+                        </Text>
+                        <Box
+                          display="flex"
+                          alignItems="baseline"
+                          gap="spacing.2"
+                          marginTop="spacing.1"
+                        >
+                          <Text size="small" color="surface.text.gray.muted">
+                            Estimated net monthly revenue gain:
+                          </Text>
+                          {typeof simResult.projected_monthly_revenue_gain === 'number' ? (
+                            <SignedAmount
+                              value={simResult.projected_monthly_revenue_gain}
+                              color={
+                                simResult.projected_monthly_revenue_gain >= 0
+                                  ? 'feedback.text.positive.intense'
+                                  : 'feedback.text.negative.intense'
+                              }
+                            />
+                          ) : (
+                            <Text size="small" color="surface.text.gray.muted">
+                              n/a
+                            </Text>
+                          )}
+                        </Box>
+                      </Box>
+                      <Box flexShrink="0">
+                        {typeof simResult.estimated_roi_multiplier === 'number' ? (
+                          simResult.estimated_roi_multiplier === 0 ? (
+                            <Text size="small" color="surface.text.gray.muted">
+                              n/a — no newly-allowed actions
+                            </Text>
+                          ) : (
+                            <Badge color="information" emphasis="intense">
+                              {`${simResult.estimated_roi_multiplier}x action-cost ROI`}
+                            </Badge>
+                          )
+                        ) : (
+                          <Text size="small" color="surface.text.gray.muted">
+                            n/a
+                          </Text>
+                        )}
+                      </Box>
+                    </Box>
+                    {simResult.projection_basis ? (
+                      <Text variant="caption" size="small" color="surface.text.gray.muted">
+                        {simResult.projection_basis}
+                      </Text>
+                    ) : null}
+                  </Box>
+
+                  {/* Explanation */}
+                  <Box
+                    backgroundColor="surface.background.gray.moderate"
+                    borderRadius="medium"
+                    padding="spacing.4"
+                  >
+                    <Text variant="caption" size="small" color="surface.text.gray.muted">
+                      Risk &amp; policy analysis
+                    </Text>
+                    <Text size="small" marginTop="spacing.2">
+                      {simResult.explanation}
+                    </Text>
+                  </Box>
+                </Box>
+              </CardBody>
+            </Card>
+          ) : (
+            <Box
+              height="100%"
+              minHeight="320px"
+              display="flex"
+              flexDirection="column"
+              alignItems="center"
+              justifyContent="center"
+              gap="spacing.3"
+              padding="spacing.7"
+              borderRadius="medium"
+              borderWidth="thin"
+              borderStyle="dashed"
+              borderColor="surface.border.gray.muted"
+            >
+              <Heading size="small">Ready to simulate</Heading>
+              <Text size="small" color="surface.text.gray.muted" textAlign="center">
+                Adjust the rule parameters on the left and run an offline simulation to project the
+                impact across historical payments.
+              </Text>
+              <Button
+                variant="primary"
+                icon={PlayIcon}
+                isLoading={loading}
+                onClick={handleSimulate}
+              >
+                Run Simulation
+              </Button>
+            </Box>
           )}
-        </div>
-      </div>
-    </div>
+        </Box>
+      </Box>
+    </Box>
   );
 };

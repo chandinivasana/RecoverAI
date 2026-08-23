@@ -2,9 +2,46 @@
 
 import React, { useState, useEffect } from 'react';
 import {
-  AlertTriangle, Eye, Search, Zap, ArrowUpRight
-} from 'lucide-react';
-import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
+  ActionList,
+  ActionListItem,
+  Alert,
+  Amount,
+  ArrowUpRightIcon,
+  Badge,
+  Box,
+  Button,
+  Card,
+  CardBody,
+  CardFooter,
+  CardFooterTrailing,
+  CardHeader,
+  CardHeaderLeading,
+  ChartArea,
+  ChartAreaWrapper,
+  ChartCartesianGrid,
+  ChartLegend,
+  ChartTooltip,
+  ChartXAxis,
+  ChartYAxis,
+  Dropdown,
+  DropdownOverlay,
+  Heading,
+  Link,
+  SearchInput,
+  SelectInput,
+  Table,
+  TableBody,
+  TableCell,
+  TableHeader,
+  TableHeaderCell,
+  TableHeaderRow,
+  TableRow,
+  Text,
+  TrendingUpIcon,
+  ZapIcon,
+  useToast,
+} from '@razorpay/blade/components';
+import type { TableData } from '@razorpay/blade/components';
 import { DashboardKPIs, PaymentItem, StrategyStat, AuditEvent, AnomalyItem } from '../types';
 import {
   fetchKPIs, fetchTimeseries, fetchStrategies, fetchPayments,
@@ -13,19 +50,58 @@ import {
 import { AgentActivityFeed } from './AgentActivityFeed';
 import { ABExperimentWidget } from './ABExperimentWidget';
 
+interface TimeseriesPoint {
+  date: string;
+  revenue_at_risk: number;
+  revenue_recovered: number;
+  failed_count: number;
+  recovered_count: number;
+  // Index signature so the shape satisfies Blade's chart data contract.
+  [key: string]: string | number;
+}
+
 interface DashboardProps {
   onSelectPayment: (paymentId: string) => void;
   onNavigateToReviews: () => void;
   merchantId?: string; // '' or undefined = all merchants
 }
 
+type FeedbackColor = 'positive' | 'negative' | 'notice' | 'information' | 'neutral';
+
+type StrategyRow = StrategyStat & { id: string };
+type PaymentRow = PaymentItem & { id: string };
+
+// Status color language (consistent across the app):
+// recovered → positive · failed → negative · escalated_to_human → notice
+// processing_recovery → information · stopped / permanently_failed → neutral gray
+const STATUS_BADGE_CONFIG: Record<string, { label: string; color: FeedbackColor }> = {
+  recovered: { label: 'Recovered', color: 'positive' },
+  failed: { label: 'Failed', color: 'negative' },
+  escalated_to_human: { label: 'Escalated', color: 'notice' },
+  processing_recovery: { label: 'Processing', color: 'information' },
+  stopped: { label: 'Stopped', color: 'neutral' },
+  permanently_failed: { label: 'Perm. Failed', color: 'neutral' },
+};
+
+const ANOMALY_SEVERITY_COLOR: Record<AnomalyItem['severity'], FeedbackColor> = {
+  HIGH: 'negative',
+  MEDIUM: 'notice',
+  LOW: 'information',
+};
+
+const errorMessage = (err: unknown): string =>
+  err instanceof Error ? err.message : String(err);
+
 export const Dashboard: React.FC<DashboardProps> = ({ onSelectPayment, onNavigateToReviews, merchantId }) => {
+  const toast = useToast();
+
   const [kpis, setKpis] = useState<DashboardKPIs | null>(null);
-  const [timeseries, setTimeseries] = useState<any[]>([]);
+  const [timeseries, setTimeseries] = useState<TimeseriesPoint[]>([]);
   const [strategies, setStrategies] = useState<StrategyStat[]>([]);
   const [payments, setPayments] = useState<PaymentItem[]>([]);
   const [feed, setFeed] = useState<AuditEvent[]>([]);
   const [anomalies, setAnomalies] = useState<AnomalyItem[]>([]);
+  const [dismissedAnomalies, setDismissedAnomalies] = useState<Set<string>>(new Set());
   const [batchProcessing, setBatchProcessing] = useState(false);
   const [singleProcessing, setSingleProcessing] = useState<string | null>(null);
 
@@ -56,9 +132,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ onSelectPayment, onNavigat
   };
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial data fetch; setters run post-await
     loadData();
     const interval = setInterval(loadData, 10000);
     return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadData identity changes each render; polling is keyed by the filters
   }, [statusFilter, methodFilter, search, merchantId]);
 
   const handleRunSingleRecovery = async (paymentId: string) => {
@@ -67,7 +145,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onSelectPayment, onNavigat
       await processFullRecovery(paymentId);
       await loadData();
     } catch (err) {
-      alert('Error running recovery: ' + err);
+      toast.show({ content: `Error running recovery: ${errorMessage(err)}`, color: 'negative' });
     } finally {
       setSingleProcessing(null);
     }
@@ -79,328 +157,414 @@ export const Dashboard: React.FC<DashboardProps> = ({ onSelectPayment, onNavigat
       await batchProcessRecoveries(10, 'dev');
       await loadData();
     } catch (err) {
-      alert('Batch recovery error: ' + err);
+      toast.show({ content: `Batch recovery error: ${errorMessage(err)}`, color: 'negative' });
     } finally {
       setBatchProcessing(false);
     }
   };
 
   const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'recovered':
-        return (
-          <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-            Recovered
-          </span>
-        );
-      case 'escalated_to_human':
-        return (
-          <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
-            Escalated
-          </span>
-        );
-      case 'stopped':
-        return (
-          <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-[var(--bg-subtle)] text-[var(--text-muted)] border border-[var(--border-main)]">
-            Stopped
-          </span>
-        );
-      default:
-        return (
-          <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
-            Failed
-          </span>
-        );
-    }
+    const config = STATUS_BADGE_CONFIG[status] ?? { label: 'Failed', color: 'negative' as FeedbackColor };
+    return (
+      <Badge size="small" color={config.color}>
+        {config.label}
+      </Badge>
+    );
+  };
+
+  const visibleAnomalies = anomalies.filter((a) => !dismissedAnomalies.has(a.error_code));
+
+  const strategyTableData: TableData<StrategyRow> = {
+    nodes: strategies.map((st) => ({ ...st, id: st.strategy })),
+  };
+
+  const paymentsTableData: TableData<PaymentRow> = {
+    nodes: payments.map((p) => ({ ...p, id: p.payment_id })),
   };
 
   return (
-    <div className="space-y-5">
-      {/* Telemetry Alert if Anomaly Detected */}
-      {anomalies.length > 0 && (
-        <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-md flex items-center justify-between">
-          <div className="flex items-center space-x-2.5">
-            <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
-            <div className="text-xs">
-              <span className="font-semibold text-amber-600 dark:text-amber-300">Gateway Telemetry Alert: </span>
-              <span className="text-[var(--text-main)]">{anomalies[0].message}</span>
-            </div>
-          </div>
-          <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-700 dark:text-amber-200 border border-amber-500/30 font-semibold">
-            {anomalies[0].recommended_action}
-          </span>
-        </div>
+    <Box display="flex" flexDirection="column" gap="spacing.5">
+      {/* Gateway telemetry anomalies (from API, dismissable per error code) */}
+      {visibleAnomalies.length > 0 && (
+        <Box display="flex" flexDirection="column" gap="spacing.3">
+          {visibleAnomalies.map((anomaly) => (
+            <Alert
+              key={anomaly.error_code}
+              title={`Gateway Telemetry Alert: ${anomaly.error_code}`}
+              description={`${anomaly.message} Recommended action: ${anomaly.recommended_action}`}
+              color={ANOMALY_SEVERITY_COLOR[anomaly.severity] ?? 'notice'}
+              emphasis="subtle"
+              isFullWidth
+              isDismissible
+              onDismiss={() =>
+                setDismissedAnomalies((prev) => {
+                  const next = new Set(prev);
+                  next.add(anomaly.error_code);
+                  return next;
+                })
+              }
+            />
+          ))}
+        </Box>
       )}
 
-      {/* Top Asymmetric KPI Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+      {/* KPI stat cards */}
+      <Box
+        display="grid"
+        gridTemplateColumns={{ base: '1fr', s: 'repeat(2, 1fr)', l: 'repeat(4, 1fr)' }}
+        gap="spacing.4"
+      >
         {/* Revenue at Risk */}
-        <div className="bg-[var(--bg-card)] border border-[var(--border-main)] p-4 rounded-md flex flex-col justify-between shadow-xs">
-          <div>
-            <div className="text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wider">
-              Revenue at Risk
-            </div>
-            <div className="text-2xl font-bold text-[var(--text-main)] font-mono tabular-nums mt-1.5">
-              ₹{kpis ? Number(kpis.revenue_at_risk).toLocaleString('en-IN') : '0'}
-            </div>
-          </div>
-          <div className="text-[11px] text-[var(--text-muted)] font-mono mt-3">
-            {kpis?.total_failed_transactions || 0} failed transactions
-          </div>
-        </div>
+        <Card padding="spacing.5">
+          <CardBody>
+            <Box display="flex" flexDirection="column" gap="spacing.2">
+              <Text size="xsmall" weight="semibold" color="surface.text.gray.muted">
+                REVENUE AT RISK
+              </Text>
+              <Amount
+                value={kpis ? Number(kpis.revenue_at_risk) : 0}
+                currency="INR"
+                type="heading"
+                size="xlarge"
+                weight="semibold"
+                suffix="none"
+              />
+              <Text size="xsmall" color="surface.text.gray.muted">
+                {kpis?.total_failed_transactions || 0} failed transactions
+              </Text>
+            </Box>
+          </CardBody>
+        </Card>
 
         {/* Revenue Recovered */}
-        <div className="bg-[var(--bg-card)] border border-[var(--border-main)] p-4 rounded-md flex flex-col justify-between shadow-xs">
-          <div>
-            <div className="text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wider">
-              Revenue Recovered
-            </div>
-            <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400 font-mono tabular-nums mt-1.5">
-              ₹{kpis ? Number(kpis.revenue_recovered).toLocaleString('en-IN') : '0'}
-            </div>
-          </div>
-          <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-mono mt-3">
-            {kpis?.recovered_transactions_count || 0} settled autonomously
-          </div>
-        </div>
+        <Card padding="spacing.5">
+          <CardBody>
+            <Box display="flex" flexDirection="column" gap="spacing.2">
+              <Text size="xsmall" weight="semibold" color="surface.text.gray.muted">
+                REVENUE RECOVERED
+              </Text>
+              <Amount
+                value={kpis ? Number(kpis.revenue_recovered) : 0}
+                currency="INR"
+                type="heading"
+                size="xlarge"
+                weight="semibold"
+                suffix="none"
+                color="feedback.text.positive.intense"
+              />
+              <Text size="xsmall" color="feedback.text.positive.intense">
+                {kpis?.recovered_transactions_count || 0} settled autonomously
+              </Text>
+            </Box>
+          </CardBody>
+        </Card>
 
         {/* Recovery Rate */}
-        <div className="bg-[var(--bg-card)] border border-[var(--border-main)] p-4 rounded-md flex flex-col justify-between shadow-xs">
-          <div>
-            <div className="text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wider">
-              Recovery Rate
-            </div>
-            <div className="text-2xl font-bold text-blue-600 dark:text-blue-400 font-mono tabular-nums mt-1.5">
-              {kpis?.recovery_rate_percent || 0}%
-            </div>
-          </div>
-          <div className="text-[11px] text-[var(--text-muted)] font-mono mt-3">
-            Primary optimization metric
-          </div>
-        </div>
+        <Card padding="spacing.5">
+          <CardBody>
+            <Box display="flex" flexDirection="column" gap="spacing.2">
+              <Text size="xsmall" weight="semibold" color="surface.text.gray.muted">
+                RECOVERY RATE
+              </Text>
+              <Box display="flex" flexDirection="row" alignItems="center" gap="spacing.3">
+                <Heading size="xlarge" color="feedback.text.information.intense">
+                  {kpis?.recovery_rate_percent ?? 0}%
+                </Heading>
+                <TrendingUpIcon size="medium" color="feedback.icon.information.intense" />
+              </Box>
+              <Text size="xsmall" color="surface.text.gray.muted">
+                Primary optimization metric
+              </Text>
+            </Box>
+          </CardBody>
+        </Card>
 
         {/* Human Escalations */}
-        <div
+        <Card
+          padding="spacing.5"
           onClick={onNavigateToReviews}
-          className="bg-[var(--bg-card)] border border-[var(--border-main)] hover:border-amber-500/50 p-4 rounded-md flex flex-col justify-between cursor-pointer transition-colors shadow-xs"
+          shouldScaleOnHover
+          accessibilityLabel="View pending human escalations"
         >
-          <div>
-            <div className="flex items-center justify-between text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wider">
-              <span>Human Escalations</span>
-              <ArrowUpRight className="w-3.5 h-3.5 text-[var(--text-muted)]" />
-            </div>
-            <div className="text-2xl font-bold text-amber-600 dark:text-amber-400 font-mono tabular-nums mt-1.5">
-              {kpis?.pending_human_escalations || 0}
-            </div>
-          </div>
-          <div className="text-[11px] text-amber-600 dark:text-amber-400 font-mono mt-3 font-medium">
-            Pending operator review →
-          </div>
-        </div>
-      </div>
+          <CardBody>
+            <Box display="flex" flexDirection="column" gap="spacing.2">
+              <Box display="flex" flexDirection="row" justifyContent="space-between" alignItems="center">
+                <Text size="xsmall" weight="semibold" color="surface.text.gray.muted">
+                  HUMAN ESCALATIONS
+                </Text>
+                <ArrowUpRightIcon size="small" color="surface.icon.gray.muted" />
+              </Box>
+              <Heading size="xlarge" color="feedback.text.notice.intense">
+                {kpis?.pending_human_escalations || 0}
+              </Heading>
+              <Text size="xsmall" weight="medium" color="feedback.text.notice.intense">
+                Pending operator review
+              </Text>
+            </Box>
+          </CardBody>
+        </Card>
+      </Box>
 
-      {/* Main Split: Primary Chart (8 col) + Agent Stream (4 col) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-        {/* Chart Panel */}
-        <div className="lg:col-span-8 bg-[var(--bg-card)] border border-[var(--border-main)] rounded-md p-5 flex flex-col justify-between space-y-4 shadow-xs">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <div>
-              <h3 className="text-xs font-semibold text-[var(--text-main)] uppercase tracking-wider">
-                Revenue Recovery Performance
-              </h3>
-              <p className="text-[11px] text-[var(--text-muted)]">Failed volume at risk vs. actual settled recovery (INR)</p>
-            </div>
+      {/* Main split: revenue chart + live agent decision feed */}
+      <Box
+        display="grid"
+        gridTemplateColumns={{ base: '1fr', l: '2fr 1fr' }}
+        gap="spacing.4"
+        alignItems="stretch"
+      >
+        <Card padding="spacing.5">
+          <CardHeader>
+            <CardHeaderLeading
+              title="Revenue Recovery Performance"
+              subtitle="Failed volume at risk vs. actual settled recovery (INR)"
+            />
+          </CardHeader>
+          <CardBody>
+            {/* Explicitly sized block container: the chart's ResponsiveContainer
+                collapses to -1x-1 inside an unsized flex CardBody. */}
+            <Box width="100%" height="280px" display="block">
+              <ChartAreaWrapper data={timeseries} width="100%" height="100%">
+              <ChartCartesianGrid />
+              <ChartXAxis dataKey="date" />
+              <ChartYAxis
+                tickFormatter={(value: number) =>
+                  value >= 100000 ? `₹${(value / 100000).toFixed(1)}L` : `₹${value}`
+                }
+              />
+              <ChartTooltip />
+              <ChartLegend />
+              <ChartArea
+                dataKey="revenue_at_risk"
+                name="Revenue at Risk"
+                type="monotone"
+                color="data.background.categorical.red.strong"
+              />
+              <ChartArea
+                dataKey="revenue_recovered"
+                name="Revenue Recovered"
+                type="monotone"
+                color="data.background.categorical.green.strong"
+              />
+              </ChartAreaWrapper>
+            </Box>
+          </CardBody>
+          <CardFooter>
+            <CardFooterTrailing
+              actions={{
+                primary: {
+                  text: batchProcessing ? 'Executing Batch…' : 'Batch Process 10 Txns',
+                  onClick: handleBatchProcess,
+                  isLoading: batchProcessing,
+                  icon: ZapIcon,
+                },
+              }}
+            />
+          </CardFooter>
+        </Card>
 
-            <button
-              onClick={handleBatchProcess}
-              disabled={batchProcessing}
-              className="px-3 py-1.5 text-xs font-medium rounded-md bg-[#0066F5] hover:bg-blue-600 text-white transition-colors flex items-center space-x-1.5 disabled:opacity-50 cursor-pointer shadow-xs"
-            >
-              <Zap className="w-3.5 h-3.5" />
-              <span>{batchProcessing ? 'Executing Batch...' : 'Batch Process 10 Txns'}</span>
-            </button>
-          </div>
+        {/* Live decision feed (migrated separately) */}
+        <AgentActivityFeed events={feed} onSelectPayment={onSelectPayment} />
+      </Box>
 
-          <div className="h-64 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={timeseries} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="colorRisk" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#f43f5e" stopOpacity={0.25} />
-                    <stop offset="95%" stopColor="#f43f5e" stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="colorRecovered" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.35} />
-                    <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="2 2" stroke="var(--border-main)" />
-                <XAxis dataKey="date" stroke="var(--text-muted)" tick={{ fontSize: 10 }} />
-                <YAxis stroke="var(--text-muted)" tick={{ fontSize: 10 }} tickFormatter={(val) => `₹${val > 100000 ? (val/100000).toFixed(1)+'L' : val}`} />
-                <Tooltip
-                  contentStyle={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-main)', borderRadius: '4px', fontSize: '11px', color: 'var(--text-main)' }}
-                />
-                <Area type="monotone" dataKey="revenue_at_risk" name="Revenue at Risk" stroke="#f43f5e" strokeWidth={1.5} fillOpacity={1} fill="url(#colorRisk)" />
-                <Area type="monotone" dataKey="revenue_recovered" name="Revenue Recovered" stroke="#10b981" strokeWidth={1.5} fillOpacity={1} fill="url(#colorRecovered)" />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
+      {/* Recovery strategy performance table */}
+      <Card padding="spacing.5">
+        <CardHeader>
+          <CardHeaderLeading
+            title="Strategy Attribution & Efficiency (Section 23)"
+            subtitle="Bounded action yield and settled recovery metrics"
+          />
+        </CardHeader>
+        <CardBody>
+          <Box overflowX="auto">
+            <Table data={strategyTableData} rowDensity="compact">
+              {(tableData) => (
+                <>
+                  <TableHeader>
+                    <TableHeaderRow>
+                      <TableHeaderCell>Strategy Rail</TableHeaderCell>
+                      <TableHeaderCell>Attempts</TableHeaderCell>
+                      <TableHeaderCell>Settled</TableHeaderCell>
+                      <TableHeaderCell>Conversion</TableHeaderCell>
+                      <TableHeaderCell textAlign="right">Recovered Amount</TableHeaderCell>
+                    </TableHeaderRow>
+                  </TableHeader>
+                  <TableBody>
+                    {tableData.map((st) => (
+                      <TableRow key={st.id} item={st}>
+                        <TableCell>
+                          <Text size="small" weight="medium">{st.strategy}</Text>
+                        </TableCell>
+                        <TableCell>
+                          <Text size="small" color="surface.text.gray.muted">{st.attempts}</Text>
+                        </TableCell>
+                        <TableCell>
+                          <Text size="small" weight="semibold" color="feedback.text.positive.intense">
+                            {st.recoveries}
+                          </Text>
+                        </TableCell>
+                        <TableCell>
+                          <Text size="small" weight="semibold" color="feedback.text.information.intense">
+                            {st.recovery_rate_percent}%
+                          </Text>
+                        </TableCell>
+                        <TableCell textAlign="right">
+                          <Amount value={Number(st.revenue_recovered)} currency="INR" weight="semibold" />
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </>
+              )}
+            </Table>
+          </Box>
+        </CardBody>
+      </Card>
 
-        {/* Live Decision Feed */}
-        <div className="lg:col-span-4">
-          <AgentActivityFeed events={feed} onSelectPayment={onSelectPayment} />
-        </div>
-      </div>
-
-      {/* Recovery Strategy Performance Table */}
-      <div className="bg-[var(--bg-card)] border border-[var(--border-main)] rounded-md p-5 space-y-3 shadow-xs">
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-xs font-semibold text-[var(--text-main)] uppercase tracking-wider">
-              Strategy Attribution & Efficiency (Section 23)
-            </h3>
-            <p className="text-[11px] text-[var(--text-muted)]">Bounded action yield and settled recovery metrics</p>
-          </div>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse">
-            <thead>
-              <tr className="border-b border-[var(--border-main)] text-[var(--text-muted)] uppercase text-[10px] tracking-wider">
-                <th className="py-2.5 font-semibold">Strategy Rail</th>
-                <th className="py-2.5 font-semibold">Attempts</th>
-                <th className="py-2.5 font-semibold">Settled</th>
-                <th className="py-2.5 font-semibold">Conversion</th>
-                <th className="py-2.5 font-semibold text-right">Recovered Amount</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[var(--border-main)] font-mono">
-              {strategies.map((st) => (
-                <tr key={st.strategy} className="hover:bg-[var(--table-hover)] transition-colors">
-                  <td className="py-2.5 font-medium text-[var(--text-main)]">{st.strategy}</td>
-                  <td className="py-2.5 text-[var(--text-muted)]">{st.attempts}</td>
-                  <td className="py-2.5 text-emerald-600 dark:text-emerald-400 font-semibold">{st.recoveries}</td>
-                  <td className="py-2.5 text-blue-600 dark:text-blue-400 font-semibold">{st.recovery_rate_percent}%</td>
-                  <td className="py-2.5 text-right font-bold text-[var(--text-main)]">
-                    ₹{Number(st.revenue_recovered).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Live A/B Strategy Performance Experiments */}
+      {/* Live A/B strategy performance experiments (migrated separately) */}
       <ABExperimentWidget />
 
-      {/* Transactions Data Table */}
-      <div className="bg-[var(--bg-card)] border border-[var(--border-main)] rounded-md p-5 space-y-4 shadow-xs">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div>
-            <h3 className="text-xs font-semibold text-[var(--text-main)] uppercase tracking-wider">
-              Payment Events & Transaction Stream
-            </h3>
-            <p className="text-[11px] text-[var(--text-muted)]">Failed payment ingestion log and agent action states</p>
-          </div>
+      {/* Transactions data table */}
+      <Card padding="spacing.5">
+        <CardHeader>
+          <CardHeaderLeading
+            title="Payment Events & Transaction Stream"
+            subtitle="Failed payment ingestion log and agent action states"
+          />
+        </CardHeader>
+        <CardBody>
+          <Box display="flex" flexDirection="column" gap="spacing.4">
+            {/* Filters */}
+            <Box display="flex" flexDirection="row" flexWrap="wrap" gap="spacing.3" alignItems="flex-end">
+              <Box minWidth="240px">
+                <SearchInput
+                  label="Search"
+                  placeholder="Search ID, customer..."
+                  value={search}
+                  onChange={({ value }) => setSearch(value ?? '')}
+                  onClearButtonClick={() => setSearch('')}
+                />
+              </Box>
 
-          {/* Filters */}
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="relative">
-              <Search className="w-3 h-3 absolute left-2.5 top-2.5 text-[var(--text-muted)]" />
-              <input
-                type="text"
-                placeholder="Search ID, customer..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="bg-[var(--bg-input)] border border-[var(--border-main)] rounded-md pl-7 pr-3 py-1.5 text-xs text-[var(--text-main)] placeholder-[var(--text-muted)] focus:border-blue-500 focus:outline-none"
-              />
-            </div>
+              <Box minWidth="180px">
+                <Dropdown selectionType="single">
+                  <SelectInput
+                    label="Status"
+                    placeholder="All Statuses"
+                    value={statusFilter || 'all'}
+                    onChange={({ values }) =>
+                      setStatusFilter(values[0] === 'all' ? '' : values[0] ?? '')
+                    }
+                  />
+                  <DropdownOverlay>
+                    <ActionList>
+                      <ActionListItem title="All Statuses" value="all" />
+                      <ActionListItem title="Failed" value="failed" />
+                      <ActionListItem title="Recovered" value="recovered" />
+                      <ActionListItem title="Escalated" value="escalated_to_human" />
+                      <ActionListItem title="Stopped" value="stopped" />
+                    </ActionList>
+                  </DropdownOverlay>
+                </Dropdown>
+              </Box>
 
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="bg-[var(--bg-input)] border border-[var(--border-main)] rounded-md px-2.5 py-1.5 text-xs text-[var(--text-main)] focus:outline-none"
-            >
-              <option value="">All Statuses</option>
-              <option value="failed">Failed</option>
-              <option value="recovered">Recovered</option>
-              <option value="escalated_to_human">Escalated</option>
-              <option value="stopped">Stopped</option>
-            </select>
+              <Box minWidth="180px">
+                <Dropdown selectionType="single">
+                  <SelectInput
+                    label="Method"
+                    placeholder="All Methods"
+                    value={methodFilter || 'all'}
+                    onChange={({ values }) =>
+                      setMethodFilter(values[0] === 'all' ? '' : values[0] ?? '')
+                    }
+                  />
+                  <DropdownOverlay>
+                    <ActionList>
+                      <ActionListItem title="All Methods" value="all" />
+                      <ActionListItem title="UPI" value="upi" />
+                      <ActionListItem title="Card" value="card" />
+                      <ActionListItem title="NetBanking" value="netbanking" />
+                      <ActionListItem title="EMI" value="emi" />
+                    </ActionList>
+                  </DropdownOverlay>
+                </Dropdown>
+              </Box>
+            </Box>
 
-            <select
-              value={methodFilter}
-              onChange={(e) => setMethodFilter(e.target.value)}
-              className="bg-[var(--bg-input)] border border-[var(--border-main)] rounded-md px-2.5 py-1.5 text-xs text-[var(--text-main)] focus:outline-none"
-            >
-              <option value="">All Methods</option>
-              <option value="upi">UPI</option>
-              <option value="card">Card</option>
-              <option value="netbanking">NetBanking</option>
-              <option value="emi">EMI</option>
-            </select>
-          </div>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse">
-            <thead>
-              <tr className="border-b border-[var(--border-main)] text-[var(--text-muted)] uppercase text-[10px] tracking-wider">
-                <th className="py-2.5 font-semibold">Payment ID</th>
-                <th className="py-2.5 font-semibold">Customer</th>
-                <th className="py-2.5 font-semibold">Method</th>
-                <th className="py-2.5 font-semibold">Amount</th>
-                <th className="py-2.5 font-semibold">Diagnostic Failure Reason</th>
-                <th className="py-2.5 font-semibold">Status</th>
-                <th className="py-2.5 font-semibold text-right">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[var(--border-main)] font-mono">
-              {payments.map((p) => (
-                <tr key={p.payment_id} className="hover:bg-[var(--table-hover)] transition-colors">
-                  <td className="py-2.5 text-blue-600 dark:text-blue-400 font-medium">
-                    <button
-                      onClick={() => onSelectPayment(p.payment_id)}
-                      className="hover:underline cursor-pointer"
-                    >
-                      {p.payment_id}
-                    </button>
-                  </td>
-                  <td className="py-2.5 text-[var(--text-main)] font-sans">{p.customer_name}</td>
-                  <td className="py-2.5 text-[var(--text-muted)] uppercase text-[11px]">{p.payment_method}</td>
-                  <td className="py-2.5 font-bold text-[var(--text-main)]">
-                    ₹{Number(p.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                  </td>
-                  <td className="py-2.5 text-[var(--text-muted)] max-w-xs truncate font-sans text-[11px]">
-                    {p.failure_reason}
-                  </td>
-                  <td className="py-2.5 font-sans">{getStatusBadge(p.status)}</td>
-                  <td className="py-2.5 text-right font-sans">
-                    {p.status === 'failed' ? (
-                      <button
-                        onClick={() => handleRunSingleRecovery(p.payment_id)}
-                        disabled={singleProcessing === p.payment_id}
-                        className="px-2.5 py-1 rounded-md text-xs font-medium bg-[#0066F5] hover:bg-blue-600 text-white transition-colors disabled:opacity-50 cursor-pointer shadow-xs"
-                      >
-                        {singleProcessing === p.payment_id ? 'Running...' : 'Recover'}
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => onSelectPayment(p.payment_id)}
-                        className="px-2.5 py-1 rounded-md text-xs font-medium bg-[var(--bg-subtle)] hover:bg-[var(--border-main)] text-[var(--text-main)] border border-[var(--border-main)] transition-colors cursor-pointer"
-                      >
-                        Inspect
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
+            <Box overflowX="auto">
+              <Table data={paymentsTableData} rowDensity="compact">
+                {(tableData) => (
+                  <>
+                    <TableHeader>
+                      <TableHeaderRow>
+                        <TableHeaderCell>Payment ID</TableHeaderCell>
+                        <TableHeaderCell>Customer</TableHeaderCell>
+                        <TableHeaderCell>Method</TableHeaderCell>
+                        <TableHeaderCell>Amount</TableHeaderCell>
+                        <TableHeaderCell>Diagnostic Failure Reason</TableHeaderCell>
+                        <TableHeaderCell>Status</TableHeaderCell>
+                        <TableHeaderCell textAlign="right">Action</TableHeaderCell>
+                      </TableHeaderRow>
+                    </TableHeader>
+                    <TableBody>
+                      {tableData.map((p) => (
+                        <TableRow key={p.id} item={p}>
+                          <TableCell>
+                            <Link
+                              variant="button"
+                              size="small"
+                              onClick={() => onSelectPayment(p.payment_id)}
+                            >
+                              {p.payment_id}
+                            </Link>
+                          </TableCell>
+                          <TableCell>
+                            <Text size="small">{p.customer_name}</Text>
+                          </TableCell>
+                          <TableCell>
+                            <Text size="xsmall" color="surface.text.gray.muted">
+                              {(p.payment_method || '').toUpperCase()}
+                            </Text>
+                          </TableCell>
+                          <TableCell>
+                            <Amount value={Number(p.amount)} currency="INR" weight="semibold" />
+                          </TableCell>
+                          <TableCell>
+                            <Text size="xsmall" color="surface.text.gray.muted" truncateAfterLines={1}>
+                              {p.failure_reason}
+                            </Text>
+                          </TableCell>
+                          <TableCell>{getStatusBadge(p.status)}</TableCell>
+                          <TableCell textAlign="right">
+                            {p.status === 'failed' ? (
+                              <Button
+                                size="xsmall"
+                                variant="primary"
+                                icon={ZapIcon}
+                                isLoading={singleProcessing === p.payment_id}
+                                onClick={() => handleRunSingleRecovery(p.payment_id)}
+                              >
+                                Recover
+                              </Button>
+                            ) : (
+                              <Button
+                                size="xsmall"
+                                variant="secondary"
+                                onClick={() => onSelectPayment(p.payment_id)}
+                              >
+                                Inspect
+                              </Button>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </>
+                )}
+              </Table>
+            </Box>
+          </Box>
+        </CardBody>
+      </Card>
+    </Box>
   );
 };
