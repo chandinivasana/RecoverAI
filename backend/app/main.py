@@ -40,10 +40,16 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS configuration
+# CORS: explicit origins only. Wildcard origins with credentials is an invalid
+# combination browsers reject — and a payments API should name its consumers.
+CORS_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
+    if origin.strip()
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

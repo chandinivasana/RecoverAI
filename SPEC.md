@@ -82,10 +82,10 @@
 - `POST /api/payments/events` — Ingest payment failure events (Idempotent by `event_id`)
 - `GET /api/payments` — Query transactions with filtering by status, failure_type, risk
 - `GET /api/payments/{payment_id}` — Get full transaction detail with context and audit trail
-- `POST /api/recovery/{payment_id}/process` — Run complete agentic pipeline (Analyst -> Planner -> Policy -> Executor -> Audit)
+- `POST /api/recovery/{payment_id}/process` — Run complete agentic pipeline (Analyst -> Planner -> Critic -> Policy -> Executor -> Audit). Execution is never exposed as a standalone endpoint: it only happens inside this policy-gated pipeline or via an approved human review.
 - `POST /api/recovery/{payment_id}/analyze` — Run failure intelligence analysis
 - `POST /api/recovery/{payment_id}/plan` — Run strategy recommendation agent
-- `POST /api/recovery/{payment_id}/execute` — Run policy-guarded execution
+- `POST /api/recovery/batch-process` — Batch the full pipeline over pending failed payments
 - `GET /api/policies` — Fetch current merchant safety policies
 - `PUT /api/policies` — Update merchant policy parameters
 - `POST /api/policies/simulate` — Run policy what-if simulation on dataset
