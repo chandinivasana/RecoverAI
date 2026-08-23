@@ -14,6 +14,9 @@ node_modules/
 out/
 build/
 dist/
+
+# Environment (never commit secrets; use .env.example as the template)
+.env
 .env.local
 .env.*.local
 npm-debug.log*
