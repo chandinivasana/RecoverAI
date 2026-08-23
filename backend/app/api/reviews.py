@@ -1,5 +1,4 @@
 import json
-import uuid
 from datetime import datetime
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -7,11 +6,12 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 import ast
 from ..models import (
-    DBHumanReview, DBPayment, DBAuditEvent, DBRecoveryExecution, DBRecoveryDecision,
+    DBHumanReview, DBPayment, DBRecoveryDecision,
     DBPolicyConfig, ReviewStatus, PaymentStatus, HumanReviewActionRequest, RecoveryAction
 )
 from ..agents.payment_analyst import PaymentAnalyst
 from ..agents.recovery_executor import RecoveryExecutor
+from ..core.audit import append_audit
 from ..policy.engine import PolicyEngine
 
 router = APIRouter(prefix="/api/reviews", tags=["Human Review"])
@@ -138,19 +138,13 @@ def approve_review(review_id: str, req: HumanReviewActionRequest, db: Session = 
     if not policy_res.allowed:
         # Hard policy rule blocks the approval — record it and refuse. The
         # review stays PENDING so the reviewer can choose a compliant action.
-        db.add(DBAuditEvent(
-            audit_id=f"aud_{uuid.uuid4().hex[:10]}",
-            payment_id=payment.payment_id,
-            event_type="HUMAN_APPROVAL_BLOCKED_BY_HARD_RULE",
-            actor=f"HumanReviewer:{req.reviewer}",
-            metadata_json=json.dumps({
-                "review_id": review_id,
-                "attempted_action": action_to_run,
-                "policy_rule": policy_res.policy_rule,
-                "reason": policy_res.reason
-            }),
-            timestamp=datetime.utcnow()
-        ))
+        append_audit(db, payment.payment_id, "HUMAN_APPROVAL_BLOCKED_BY_HARD_RULE",
+                     f"HumanReviewer:{req.reviewer}", {
+                         "review_id": review_id,
+                         "attempted_action": action_to_run,
+                         "policy_rule": policy_res.policy_rule,
+                         "reason": policy_res.reason
+                     })
         db.commit()
         raise HTTPException(
             status_code=409,
@@ -189,19 +183,13 @@ def approve_review(review_id: str, req: HumanReviewActionRequest, db: Session = 
     )
 
     # Record Audit Event
-    db.add(DBAuditEvent(
-        audit_id=f"aud_{uuid.uuid4().hex[:10]}",
-        payment_id=payment.payment_id,
-        event_type="HUMAN_REVIEW_APPROVED",
-        actor=f"HumanReviewer:{req.reviewer}",
-        metadata_json=json.dumps({
-            "review_id": review_id,
-            "action": action_to_run,
-            "notes": req.notes,
-            "policy_rule": policy_res.policy_rule
-        }),
-        timestamp=datetime.utcnow()
-    ))
+    append_audit(db, payment.payment_id, "HUMAN_REVIEW_APPROVED",
+                 f"HumanReviewer:{req.reviewer}", {
+                     "review_id": review_id,
+                     "action": action_to_run,
+                     "notes": req.notes,
+                     "policy_rule": policy_res.policy_rule
+                 })
     db.commit()
 
     return {
@@ -238,14 +226,8 @@ def reject_review(review_id: str, req: HumanReviewActionRequest, db: Session = D
 
     # Record Audit Event
     if payment:
-        db.add(DBAuditEvent(
-            audit_id=f"aud_{uuid.uuid4().hex[:10]}",
-            payment_id=payment.payment_id,
-            event_type="HUMAN_REVIEW_REJECTED",
-            actor=f"HumanReviewer:{req.reviewer}",
-            metadata_json=json.dumps({"review_id": review_id, "notes": req.notes}),
-            timestamp=datetime.utcnow()
-        ))
+        append_audit(db, payment.payment_id, "HUMAN_REVIEW_REJECTED",
+                     f"HumanReviewer:{req.reviewer}", {"review_id": review_id, "notes": req.notes})
     db.commit()
 
     return {

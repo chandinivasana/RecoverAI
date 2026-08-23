@@ -4,9 +4,10 @@ from datetime import datetime
 from typing import Dict, Any
 from sqlalchemy.orm import Session
 from ..models import (
-    DBPayment, DBRecoveryExecution, DBAuditEvent, DBHumanReview,
+    DBPayment, DBRecoveryExecution, DBHumanReview,
     RecoveryAction, PaymentStatus, ReviewStatus, FailureCategory
 )
+from ..core.audit import append_audit
 from ..core.outcome_model import assign_ground_truth, simulate_action_outcome
 from ..core.rate_limiter import AcquirerRateLimitManager
 from ..policy.rules import PolicyEvaluationResult
@@ -26,14 +27,8 @@ class RecoveryExecutor:
             payment.payment_method, payment.error_code or ""
         )
         if breaker["circuit_breaker_tripped"]:
-            db.add(DBAuditEvent(
-                audit_id=f"aud_{uuid.uuid4().hex[:10]}",
-                payment_id=payment.payment_id,
-                event_type="CIRCUIT_BREAKER_TRIPPED",
-                actor="AcquirerRateLimitManager",
-                metadata_json=json.dumps(breaker),
-                timestamp=datetime.utcnow()
-            ))
+            append_audit(db, payment.payment_id, "CIRCUIT_BREAKER_TRIPPED",
+                         "AcquirerRateLimitManager", breaker)
         return breaker
 
     @staticmethod
@@ -83,14 +78,11 @@ class RecoveryExecutor:
                 db.add(exec_record)
 
                 # Audit Event
-                db.add(DBAuditEvent(
-                    audit_id=f"aud_{uuid.uuid4().hex[:10]}",
-                    payment_id=payment.payment_id,
-                    event_type="RECOVERY_BLOCKED_AND_ESCALATED",
-                    actor="PolicyEngine",
-                    metadata_json=json.dumps({"rule": policy_result.policy_rule, "reason": policy_result.reason, "review_id": review_id}),
-                    timestamp=datetime.utcnow()
-                ))
+                append_audit(db, payment.payment_id, "RECOVERY_BLOCKED_AND_ESCALATED", "PolicyEngine", {
+                    "rule": policy_result.policy_rule,
+                    "reason": policy_result.reason,
+                    "review_id": review_id
+                })
                 db.commit()
 
                 return {
@@ -115,14 +107,10 @@ class RecoveryExecutor:
                     executed_at=datetime.utcnow()
                 )
                 db.add(exec_record)
-                db.add(DBAuditEvent(
-                    audit_id=f"aud_{uuid.uuid4().hex[:10]}",
-                    payment_id=payment.payment_id,
-                    event_type="RECOVERY_STOPPED_BY_POLICY",
-                    actor="PolicyEngine",
-                    metadata_json=json.dumps({"rule": policy_result.policy_rule, "reason": policy_result.reason}),
-                    timestamp=datetime.utcnow()
-                ))
+                append_audit(db, payment.payment_id, "RECOVERY_STOPPED_BY_POLICY", "PolicyEngine", {
+                    "rule": policy_result.policy_rule,
+                    "reason": policy_result.reason
+                })
                 db.commit()
 
                 return {
@@ -148,14 +136,9 @@ class RecoveryExecutor:
                 executed_at=datetime.utcnow()
             )
             db.add(exec_record)
-            db.add(DBAuditEvent(
-                audit_id=f"aud_{uuid.uuid4().hex[:10]}",
-                payment_id=payment.payment_id,
-                event_type="RECOVERY_SAFE_STOP",
-                actor=actor,
-                metadata_json=json.dumps({"reason": decision_data.get("reason", "")}),
-                timestamp=datetime.utcnow()
-            ))
+            append_audit(db, payment.payment_id, "RECOVERY_SAFE_STOP", actor, {
+                "reason": decision_data.get("reason", "")
+            })
             db.commit()
             return {
                 "execution_id": execution_id,
@@ -196,14 +179,10 @@ class RecoveryExecutor:
                 executed_at=datetime.utcnow()
             )
             db.add(exec_record)
-            db.add(DBAuditEvent(
-                audit_id=f"aud_{uuid.uuid4().hex[:10]}",
-                payment_id=payment.payment_id,
-                event_type="EXECUTION_HUMAN_REVIEW_ESCALATED",
-                actor=actor,
-                metadata_json=json.dumps({"review_id": review_id, "reason": decision_data.get("reason", "")}),
-                timestamp=datetime.utcnow()
-            ))
+            append_audit(db, payment.payment_id, "EXECUTION_HUMAN_REVIEW_ESCALATED", actor, {
+                "review_id": review_id,
+                "reason": decision_data.get("reason", "")
+            })
             db.commit()
             return {
                 "execution_id": execution_id,
@@ -310,14 +289,11 @@ class RecoveryExecutor:
         db.add(exec_record)
 
         # Record Audit Event
-        db.add(DBAuditEvent(
-            audit_id=f"aud_{uuid.uuid4().hex[:10]}",
-            payment_id=payment.payment_id,
-            event_type=f"EXECUTION_{action}_{exec_record.status}",
-            actor=actor,
-            metadata_json=json.dumps({"result": result_text, "amount_recovered": amount_rec, "details": details}),
-            timestamp=datetime.utcnow()
-        ))
+        append_audit(db, payment.payment_id, f"EXECUTION_{action}_{exec_record.status}", actor, {
+            "result": result_text,
+            "amount_recovered": amount_rec,
+            "details": details
+        })
 
         db.commit()
 

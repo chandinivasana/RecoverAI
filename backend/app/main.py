@@ -8,7 +8,7 @@ from .database import engine, Base, SessionLocal
 from .core.schema_guard import ensure_columns
 from .core.seed_data import seed_database
 from .core.demo_warmup import warm_start_demo
-from .api import payments, recovery, policies, reviews, evaluation, analytics, replay, redteam
+from .api import payments, recovery, policies, reviews, evaluation, analytics, replay, redteam, audit
 
 
 def _env_flag(name: str, default: str) -> bool:
@@ -58,6 +58,7 @@ app.include_router(evaluation.router)
 app.include_router(analytics.router)
 app.include_router(replay.router)
 app.include_router(redteam.router)
+app.include_router(audit.router)
 
 @app.get("/")
 def root():

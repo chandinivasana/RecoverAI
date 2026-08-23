@@ -7,7 +7,7 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Next.js 16](https://img.shields.io/badge/frontend-Next.js%2016-black.svg)](https://nextjs.org/)
 [![FastAPI](https://img.shields.io/badge/backend-FastAPI-009688.svg)](https://fastapi.tiangolo.com/)
-![Tests Passing](https://img.shields.io/badge/tests-24%2F24%20passing-brightgreen.svg)
+![Tests Passing](https://img.shields.io/badge/tests-46%2F46%20passing-brightgreen.svg)
 [![Design System](https://img.shields.io/badge/design-Razorpay%20Blade%20inspired-0C8CE9.svg)](https://blade.razorpay.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -60,7 +60,7 @@ Blind retries degrade merchant margins, harass customers, trigger bank rate-limi
    ↓                     ↓
 [Customer Blade Modal / Sandbox Webhook]
    ↓                     ↓
-[Immutable Audit Trail & Revenue Intelligence]
+[Tamper-Evident Audit Chain & Revenue Intelligence]
 ```
 
 ### What Makes RecoverAI Different
@@ -71,7 +71,7 @@ Blind retries degrade merchant margins, harass customers, trigger bank rate-limi
 - **Bank Gateway Protection**: Models acquirer capacities (HDFC, ICICI, SBI, NPCI UPI) to prevent cascade retry storms.
 - **Epistemic Uncertainty Awareness**: Voluntarily abstains and routes to human review when diagnostic signals conflict.
 - **Multi-Tenant Isolation**: Supports distinct merchant profiles (Swiggy, Urban Company, Tata Luxury) with isolated policies and telemetry.
-- **Auditable & Empirically Measured**: Immutable audit graph, one-click PDF compliance export, and held-out calibration benchmark.
+- **Auditable & Empirically Measured**: Tamper-evident SHA-256 hash-chained audit trail (verifiable end-to-end via `GET /api/audit/verify`), one-click PDF compliance export, and held-out calibration benchmark.
 
 ---
 
@@ -139,7 +139,7 @@ The Policy Engine (`backend/app/policy/engine.py`) enforces deterministic rules 
 - Offline "what-if" impact simulation projecting **Net Monthly ₹ Gains** and **Break-Even ROI Multipliers** before saving live rules.
 
 ### 5. 📄 One-Click Compliance Audit PDF Export
-- Generates a certified, printable/downloadable compliance report for any transaction with cryptographic audit logs, DPDP consent timestamps, and AI decision rationale.
+- Generates a printable/downloadable compliance report for any transaction with hash-chained audit records, DPDP consent timestamps, and AI decision rationale.
 
 ### 6. ⏪ Time-Travel Decision Debugger
 - Step-by-step pipeline trace debugger with interactive presets (₹3.5k UPI, ₹2.5L High-Ticket, High Risk).
@@ -233,14 +233,14 @@ npm run dev
 
 ## 10. Verification & Automated Tests
 
-All 17 Acceptance Criteria (AC-1 through AC-17) and safety invariants are covered by automated tests:
+All 18 Acceptance Criteria (AC-1 through AC-18) and safety invariants are covered by automated tests:
 
 ```bash
 cd backend
 ./venv/bin/pytest -v ../tests/
 ```
 
-### Test Suite Output (24/24 Passing)
+### Test Suite Output (46/46 Passing)
 ```text
 tests/test_acceptance_criteria.py::test_ac1_event_ingestion PASSED
 tests/test_acceptance_criteria.py::test_ac2_idempotency_deduplication PASSED
@@ -250,7 +250,7 @@ tests/test_acceptance_criteria.py::test_ac5_policy_engine_validation PASSED
 tests/test_acceptance_criteria.py::test_ac6_high_value_transaction_blocked PASSED
 tests/test_acceptance_criteria.py::test_ac7_human_escalation_queue PASSED
 tests/test_acceptance_criteria.py::test_ac8_simulated_recovery_execution PASSED
-tests/test_acceptance_criteria.py::test_ac9_immutable_audit_trail PASSED
+tests/test_acceptance_criteria.py::test_ac9_tamper_evident_audit_trail PASSED
 tests/test_acceptance_criteria.py::test_ac10_dashboard_kpis_real_data PASSED
 tests/test_acceptance_criteria.py::test_ac11_held_out_benchmark_reproducibility PASSED
 tests/test_acceptance_criteria.py::test_ac12_graceful_failure_and_unknown_handling PASSED
@@ -266,7 +266,10 @@ tests/test_pipeline.py::test_cost_optimizer_expected_recovery PASSED
 tests/test_pipeline.py::test_policy_engine_blocks_amount_exceeding_threshold PASSED
 tests/test_pipeline.py::test_policy_engine_prompt_injection_defense PASSED
 tests/test_pipeline.py::test_full_pipeline_execution PASSED
-============================== 24 passed in 0.28s ==============================
+tests/test_ground_truth.py (5 tests) ................................... PASSED
+tests/test_policy_edges.py (14 tests) .................................. PASSED
+tests/test_audit_chain.py (3 tests) .................................... PASSED
+============================== 46 passed in 0.45s ==============================
 ```
 
 ---

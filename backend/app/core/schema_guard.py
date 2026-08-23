@@ -16,6 +16,10 @@ ADDITIVE_COLUMNS = {
         "ground_truth_prob": "FLOAT",
         "outcome_seed": "INTEGER",
     },
+    "audit_events": {
+        "prev_hash": "VARCHAR(64)",
+        "entry_hash": "VARCHAR(64)",
+    },
 }
 
 

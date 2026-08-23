@@ -1,6 +1,5 @@
 import json
 import ast
-import uuid
 from datetime import datetime
 from typing import Optional, List, Any, Dict
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -11,6 +10,7 @@ from ..models import (
     DBRecoveryExecution, DBHumanReview, PaymentEventIngestRequest, PaymentResponse,
     PaymentStatus
 )
+from ..core.audit import append_audit
 from ..core.idempotency import IdempotencyManager
 
 router = APIRouter(prefix="/api/payments", tags=["Payments"])
@@ -90,14 +90,11 @@ def ingest_payment_event(req: PaymentEventIngestRequest, db: Session = Depends(g
         db.add(payment)
 
     # Record Audit Event
-    db.add(DBAuditEvent(
-        audit_id=f"aud_{uuid.uuid4().hex[:10]}",
-        payment_id=req.payment_id,
-        event_type="PAYMENT_FAILURE_INGESTED",
-        actor="IngestionLayer",
-        metadata_json=json.dumps({"event_id": req.event_id, "amount": req.amount, "reason": req.failure_reason}),
-        timestamp=datetime.utcnow()
-    ))
+    append_audit(db, req.payment_id, "PAYMENT_FAILURE_INGESTED", "IngestionLayer", {
+        "event_id": req.event_id,
+        "amount": req.amount,
+        "reason": req.failure_reason
+    })
     db.commit()
 
     return {
@@ -243,7 +240,9 @@ def get_payment_detail(payment_id: str, db: Session = Depends(get_db)):
                 "event_type": a.event_type,
                 "actor": a.actor,
                 "metadata": safe_json_loads(a.metadata_json),
-                "timestamp": a.timestamp
+                "timestamp": a.timestamp,
+                "prev_hash": a.prev_hash,
+                "entry_hash": a.entry_hash
             }
             for a in audit_events
         ],

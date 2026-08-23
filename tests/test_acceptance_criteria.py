@@ -183,10 +183,32 @@ def test_ac8_simulated_recovery_execution(test_db):
     assert payment.status == PaymentStatus.RECOVERED.value
     assert payment.amount_recovered == 2499.0
 
-# AC-9: Every decision recorded in immutable audit trail
-def test_ac9_immutable_audit_trail(test_db):
-    audits = test_db.query(DBAuditEvent).all()
-    assert isinstance(audits, list)
+# AC-9: Every decision recorded in a tamper-evident audit trail.
+# This test proves the property, not just the table's existence: it builds a
+# chain, verifies it, then tampers with a historical row and verifies the
+# chain reports exactly that link as broken.
+def test_ac9_tamper_evident_audit_trail(test_db):
+    from app.core.audit import append_audit, verify_chain
+
+    append_audit(test_db, "pay_ac9", "PAYMENT_FAILURE_INGESTED", "IngestionLayer", {"amount": 100})
+    append_audit(test_db, "pay_ac9", "POLICY_EVALUATION", "PolicyEngine", {"allowed": True})
+    append_audit(test_db, "pay_ac9", "EXECUTION_RETRY_SUCCESS", "Executor", {"amount_recovered": 100})
+    test_db.commit()
+
+    result = verify_chain(test_db)
+    assert result["intact"] is True
+    assert result["chained_events"] == 3
+    assert result["head_hash"] is not None
+
+    # Tamper with the middle event directly, bypassing append_audit
+    middle = test_db.query(DBAuditEvent).order_by(DBAuditEvent.id.asc()).all()[1]
+    middle.metadata_json = '{"allowed": false}'
+    test_db.commit()
+
+    result = verify_chain(test_db)
+    assert result["intact"] is False
+    assert result["first_broken_link"]["position"] == 2
+    assert result["first_broken_link"]["reason"] == "CONTENT_MISMATCH"
 
 # AC-10: Dashboard metrics come from real data
 def test_ac10_dashboard_kpis_real_data(test_db):
