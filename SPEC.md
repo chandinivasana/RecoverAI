@@ -90,8 +90,10 @@
 - `PUT /api/policies` — Update merchant policy parameters
 - `POST /api/policies/simulate` — Run policy what-if simulation on dataset
 - `GET /api/reviews` — Fetch pending human escalation queue
-- `POST /api/reviews/{id}/approve` — Approve escalated transaction
+- `POST /api/reviews/{id}/approve` — Approve escalated transaction (re-validated through the PolicyEngine; hard rules bind even humans)
 - `POST /api/reviews/{id}/reject` — Reject escalated transaction
+- `POST /api/reviews/{id}/explain` — Conversational "why was this refused?" answer citing policy rules (LLM with deterministic fallback)
+- `GET /api/audit/verify` — Walk the tamper-evident SHA-256 audit hash chain end-to-end
 - `POST /api/evaluation/run` — Run held-out test benchmark
 - `GET /api/evaluation/results` — Get benchmark accuracy, calibration, and revenue recovery metrics
 - `GET /api/analytics/kpis` — Aggregate KPIs (Revenue at risk, Recovered, Rate %, Escalations)

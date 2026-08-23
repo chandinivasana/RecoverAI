@@ -10,6 +10,7 @@ from ..models import (
     PaymentStatus, RecoveryAction
 )
 from ..core.audit import append_audit
+from ..core.llm_reasoner import get_reasoner
 from ..agents.payment_analyst import PaymentAnalyst
 from ..agents.recovery_planner import RecoveryPlanner
 from ..agents.critic import RecoveryCritic
@@ -43,6 +44,30 @@ def _apply_critic_override(db: Session, payment_id: str, plan: Dict[str, Any], c
         "notes": critic.get("notes", "")
     })
     return True
+
+
+def _audit_llm_degradation(db: Session, payment_id: str, source: str, result: Dict[str, Any]) -> None:
+    """When an LLM-backed result fell back to deterministic reasoning, record it —
+    the graceful-failure path is itself an auditable event."""
+    info = result.get("llm", result)
+    if info.get("degraded"):
+        append_audit(db, payment_id, "LLM_FALLBACK", "LLMReasoner", {
+            "source": source,
+            "provider": info.get("provider"),
+            "error": info.get("fallback_error", "")
+        })
+
+
+def _attach_llm_enrichment(db: Session, payment_id: str, analysis: Dict[str, Any],
+                           pay_data: Dict[str, Any], cust_ctx: Dict[str, Any]) -> None:
+    """LLM narrative enrichment of the analyst output. Advisory only: it never
+    mutates the deterministic classification or risk level."""
+    reasoner = get_reasoner()
+    if reasoner.name != "anthropic":
+        return
+    enrichment = reasoner.explain_analysis(analysis, pay_data, cust_ctx)
+    analysis["llm_enrichment"] = enrichment
+    _audit_llm_degradation(db, payment_id, "analyst_enrichment", enrichment)
 
 def _get_active_policy_config(db: Session) -> DBPolicyConfig:
     config = db.query(DBPolicyConfig).first()
@@ -83,6 +108,7 @@ def analyze_payment(payment_id: str, db: Session = Depends(get_db)):
     }
 
     analysis = PaymentAnalyst.analyze(pay_data, cust_ctx, vulcan_enabled=config.vulcan_enabled)
+    _attach_llm_enrichment(db, payment.payment_id, analysis, pay_data, cust_ctx)
 
     # Record Audit Event
     append_audit(db, payment.payment_id, "FAILURE_CLASSIFIED", "PaymentAnalyst", analysis)
@@ -111,8 +137,10 @@ def plan_recovery(payment_id: str, db: Session = Depends(get_db)):
     }
 
     analysis = PaymentAnalyst.analyze(pay_data, cust_ctx, vulcan_enabled=config.vulcan_enabled)
+    _attach_llm_enrichment(db, payment.payment_id, analysis, pay_data, cust_ctx)
     plan_result = RecoveryPlanner.plan(analysis, pay_data, cust_ctx)
     critic_result = RecoveryCritic.critique(plan_result, pay_data, cust_ctx)
+    _audit_llm_degradation(db, payment.payment_id, "critic", critic_result)
     critic_override_applied = _apply_critic_override(db, payment.payment_id, plan_result, critic_result)
 
     # Persist Recovery Decision
@@ -175,13 +203,17 @@ def process_full_recovery_pipeline(payment_id: str, db: Session = Depends(get_db
     analysis = PaymentAnalyst.analyze(pay_data, cust_ctx, vulcan_enabled=config.vulcan_enabled)
     pay_data["failure_type"] = analysis["failure_type"]
     pay_data["risk_level"] = analysis["risk_level"]
+    _attach_llm_enrichment(db, payment.payment_id, analysis, pay_data, cust_ctx)
 
     # 2. Planner
     plan = RecoveryPlanner.plan(analysis, pay_data, cust_ctx)
 
     # 3. Critic (Second Opinion) — a DISAGREE with a de-escalation override is
-    # adopted before policy evaluation ("two passes must agree before autonomy")
+    # adopted before policy evaluation ("two passes must agree before autonomy").
+    # When the LLM is enabled the critique is a strengthen-only merge of the
+    # deterministic rules and the LLM's independent review (see agents/critic.py).
     critic = RecoveryCritic.critique(plan, pay_data, cust_ctx)
+    _audit_llm_degradation(db, payment.payment_id, "critic", critic)
     critic_override_applied = _apply_critic_override(db, payment.payment_id, plan, critic)
 
     # 4. Record Decision

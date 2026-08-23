@@ -51,6 +51,10 @@ services:
       # dashboard shows real non-zero numbers on first open (demo payments
       # pay_dev_0001/0002 are reserved and never consumed).
       - DEMO_WARM_START=true
+      # LLM reasoning layer (advisory only; deterministic fallback when unset)
+      - LLM_ENABLED=${LLM_ENABLED:-false}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - LLM_MODEL=${LLM_MODEL:-claude-haiku-4-5}
     ports:
       - "8000:8000"
     depends_on:

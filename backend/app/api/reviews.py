@@ -2,17 +2,23 @@ import json
 from datetime import datetime
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from ..database import get_db
 import ast
 from ..models import (
-    DBHumanReview, DBPayment, DBRecoveryDecision,
+    DBHumanReview, DBPayment, DBRecoveryDecision, DBPolicyDecision,
     DBPolicyConfig, ReviewStatus, PaymentStatus, HumanReviewActionRequest, RecoveryAction
 )
 from ..agents.payment_analyst import PaymentAnalyst
 from ..agents.recovery_executor import RecoveryExecutor
 from ..core.audit import append_audit
+from ..core.llm_reasoner import get_reasoner
 from ..policy.engine import PolicyEngine
+
+
+class RefusalQuestionRequest(BaseModel):
+    question: str = Field(..., min_length=3, max_length=500)
 
 router = APIRouter(prefix="/api/reviews", tags=["Human Review"])
 
@@ -234,4 +240,85 @@ def reject_review(review_id: str, req: HumanReviewActionRequest, db: Session = D
         "review_id": review_id,
         "status": ReviewStatus.REJECTED.value,
         "message": "Recovery rejected. Transaction safely stopped."
+    }
+
+
+@router.post("/{review_id}/explain")
+def explain_refusal(review_id: str, req: RefusalQuestionRequest, db: Session = Depends(get_db)):
+    """
+    Explainable refusal Q&A (PRD §18): the reviewer asks in plain language why
+    autonomous recovery was refused, and the reasoning layer answers from the
+    decision records, citing the specific policy rules.
+
+    Read-only with respect to the payment: no execution path exists here. The
+    answer comes from the LLM when enabled, with a deterministic templated
+    fallback otherwise (or on any LLM failure — audited as LLM_FALLBACK).
+    """
+    review = db.query(DBHumanReview).filter(DBHumanReview.review_id == review_id).first()
+    if not review:
+        raise HTTPException(status_code=404, detail="Review task not found")
+    payment = db.query(DBPayment).filter(DBPayment.payment_id == review.payment_id).first()
+    if not payment:
+        raise HTTPException(status_code=404, detail="Associated payment not found")
+
+    decision = db.query(DBRecoveryDecision).filter(
+        DBRecoveryDecision.decision_id == review.decision_id).first()
+    policy_decision = db.query(DBPolicyDecision).filter(
+        DBPolicyDecision.payment_id == payment.payment_id).order_by(DBPolicyDecision.id.desc()).first()
+    config = db.query(DBPolicyConfig).first() or DBPolicyConfig()
+
+    context = {
+        "review": {
+            "amount": review.amount,
+            "reason": review.reason,
+            "risk_level": review.risk_level,
+            "proposed_action": review.proposed_action,
+            "status": review.status,
+        },
+        "payment": {
+            "payment_id": payment.payment_id,
+            "amount": payment.amount,
+            "payment_method": payment.payment_method,
+            "failure_reason": payment.failure_reason,  # untrusted — wrapped by the reasoner
+            "error_code": payment.error_code,
+            "retry_count": payment.retry_count,
+        },
+        "decision": {
+            "recommended_action": decision.recommended_action,
+            "recovery_probability": decision.recovery_probability,
+            "reason": decision.reason,
+        } if decision else {},
+        "policy_rule": policy_decision.policy_rule if policy_decision else None,
+        "policy_reason": policy_decision.reason if policy_decision else review.reason,
+        "config": {
+            "max_autonomous_amount": config.max_autonomous_amount,
+            "max_autonomous_retry_attempts": config.max_autonomous_retry_attempts,
+        },
+    }
+
+    reasoner = get_reasoner()
+    result = reasoner.answer_refusal_question(req.question, context)
+
+    if result.get("degraded"):
+        append_audit(db, payment.payment_id, "LLM_FALLBACK", "LLMReasoner", {
+            "source": "refusal_qna",
+            "provider": result.get("provider"),
+            "error": result.get("fallback_error", "")
+        })
+    append_audit(db, payment.payment_id, "REFUSAL_EXPLANATION_SERVED",
+                 f"LLMReasoner:{result.get('provider')}", {
+                     "review_id": review_id,
+                     "question": req.question[:200],
+                     "cited_rules": result.get("cited_rules", [])
+                 })
+    db.commit()
+
+    return {
+        "review_id": review_id,
+        "question": req.question,
+        "answer": result.get("answer"),
+        "cited_rules": result.get("cited_rules", []),
+        "provider": result.get("provider"),
+        "degraded": result.get("degraded", False),
+        "latency_ms": result.get("latency_ms", 0),
     }

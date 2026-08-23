@@ -125,6 +125,29 @@ export async function approveReview(reviewId: string, notes?: string, overrideAc
   return res.json();
 }
 
+export interface RefusalExplanation {
+  review_id: string;
+  question: string;
+  answer: string;
+  cited_rules: string[];
+  provider: string;
+  degraded: boolean;
+  latency_ms: number;
+}
+
+export async function explainRefusal(reviewId: string, question: string): Promise<RefusalExplanation> {
+  const res = await fetch(`${API_BASE}/api/reviews/${reviewId}/explain`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ question }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.detail || 'Failed to explain refusal');
+  }
+  return res.json();
+}
+
 export async function rejectReview(reviewId: string, notes?: string) {
   const res = await fetch(`${API_BASE}/api/reviews/${reviewId}/reject`, {
     method: 'POST',
