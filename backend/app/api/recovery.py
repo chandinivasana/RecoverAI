@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import (
     DBPayment, DBRecoveryDecision, DBPolicyDecision, DBAuditEvent, DBPolicyConfig,
-    PaymentStatus
+    PaymentStatus, RecoveryAction
 )
 from ..agents.payment_analyst import PaymentAnalyst
 from ..agents.recovery_planner import RecoveryPlanner
@@ -16,6 +16,39 @@ from ..agents.recovery_executor import RecoveryExecutor
 from ..policy.engine import PolicyEngine
 
 router = APIRouter(prefix="/api/recovery", tags=["Recovery"])
+
+# The Critic can only tighten a plan, never widen it: overrides are limited to
+# routing the decision to a human or stopping outright (de-escalation-only).
+CRITIC_ALLOWED_OVERRIDES = (RecoveryAction.HUMAN_REVIEW.value, RecoveryAction.STOP.value)
+
+
+def _apply_critic_override(db: Session, payment_id: str, plan: Dict[str, Any], critic: Dict[str, Any]) -> bool:
+    """If the Critic disagrees and proposes a de-escalation, the pipeline adopts
+    it BEFORE policy evaluation and records an audit event. Returns True if applied."""
+    if critic.get("verdict") != "DISAGREE":
+        return False
+    override = critic.get("suggested_override")
+    if override not in CRITIC_ALLOWED_OVERRIDES:
+        return False
+    original_action = plan["recommended_action"]
+    if original_action == override:
+        return False
+    plan["recommended_action"] = override
+    plan["requires_human"] = override == RecoveryAction.HUMAN_REVIEW.value
+    plan["reason"] = f"{plan['reason']} [Critic override applied: {critic.get('notes', '')}]"
+    db.add(DBAuditEvent(
+        audit_id=f"aud_{uuid.uuid4().hex[:10]}",
+        payment_id=payment_id,
+        event_type="CRITIC_OVERRIDE_APPLIED",
+        actor="RecoveryCritic",
+        metadata_json=json.dumps({
+            "original_action": original_action,
+            "override_action": override,
+            "notes": critic.get("notes", "")
+        }),
+        timestamp=datetime.utcnow()
+    ))
+    return True
 
 def _get_active_policy_config(db: Session) -> DBPolicyConfig:
     config = db.query(DBPolicyConfig).first()
@@ -93,6 +126,7 @@ def plan_recovery(payment_id: str, db: Session = Depends(get_db)):
     analysis = PaymentAnalyst.analyze(pay_data, cust_ctx, vulcan_enabled=config.vulcan_enabled)
     plan_result = RecoveryPlanner.plan(analysis, pay_data, cust_ctx)
     critic_result = RecoveryCritic.critique(plan_result, pay_data, cust_ctx)
+    critic_override_applied = _apply_critic_override(db, payment.payment_id, plan_result, critic_result)
 
     # Persist Recovery Decision
     decision_id = f"dec_{uuid.uuid4().hex[:10]}"
@@ -128,7 +162,8 @@ def plan_recovery(payment_id: str, db: Session = Depends(get_db)):
         "decision_id": decision_id,
         "analysis": analysis,
         "plan": plan_result,
-        "critic": critic_result
+        "critic": critic_result,
+        "critic_override_applied": critic_override_applied
     }
 
 @router.post("/{payment_id}/process")
@@ -160,8 +195,10 @@ def process_full_recovery_pipeline(payment_id: str, db: Session = Depends(get_db
     # 2. Planner
     plan = RecoveryPlanner.plan(analysis, pay_data, cust_ctx)
 
-    # 3. Critic (Second Opinion)
+    # 3. Critic (Second Opinion) — a DISAGREE with a de-escalation override is
+    # adopted before policy evaluation ("two passes must agree before autonomy")
     critic = RecoveryCritic.critique(plan, pay_data, cust_ctx)
+    critic_override_applied = _apply_critic_override(db, payment.payment_id, plan, critic)
 
     # 4. Record Decision
     decision_id = f"dec_{uuid.uuid4().hex[:10]}"
@@ -240,7 +277,8 @@ def process_full_recovery_pipeline(payment_id: str, db: Session = Depends(get_db
             "expected_net_recovery": plan["expected_net_recovery"],
             "action_cost": plan["action_cost"],
             "reason": plan["reason"],
-            "critic": critic
+            "critic": critic,
+            "critic_override_applied": critic_override_applied
         },
         "policy": {
             "policy_decision_id": pol_id,

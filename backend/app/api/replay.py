@@ -4,13 +4,24 @@ from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from ..database import get_db
-from ..models import DBPayment, DBPolicyConfig
+from ..models import DBPayment, DBPolicyConfig, RecoveryAction
 from ..agents.payment_analyst import PaymentAnalyst
 from ..agents.recovery_planner import RecoveryPlanner
 from ..agents.critic import RecoveryCritic
 from ..policy.engine import PolicyEngine
 
 router = APIRouter(prefix="/api/replay", tags=["Time-Travel Replay"])
+
+def _effective_action(plan: dict, critic: dict) -> tuple:
+    """Mirrors the live pipeline's critic consumption: a DISAGREE with a
+    de-escalation override (HUMAN_REVIEW/STOP) replaces the planner's action."""
+    override = critic.get("suggested_override")
+    if critic.get("verdict") == "DISAGREE" and override in (
+        RecoveryAction.HUMAN_REVIEW.value, RecoveryAction.STOP.value
+    ) and override != plan["recommended_action"]:
+        return override, True
+    return plan["recommended_action"], False
+
 
 class ReplayRequest(BaseModel):
     payment_id: Optional[str] = None
@@ -66,7 +77,8 @@ def run_time_travel_replay(req: ReplayRequest, db: Session = Depends(get_db)):
     orig_pay_data["risk_level"] = orig_analysis["risk_level"]
     orig_plan = RecoveryPlanner.plan(orig_analysis, orig_pay_data, base_meta)
     orig_critic = RecoveryCritic.critique(orig_plan, orig_pay_data, base_meta)
-    orig_policy = PolicyEngine.evaluate(orig_plan["recommended_action"], orig_pay_data, base_meta, config, dry_run=True)
+    orig_action, orig_override_applied = _effective_action(orig_plan, orig_critic)
+    orig_policy = PolicyEngine.evaluate(orig_action, orig_pay_data, base_meta, config, dry_run=True)
 
     # 2. Run Replay / Modified Pipeline Trace
     mod_amount = req.override_amount if req.override_amount is not None else base_amount
@@ -94,7 +106,8 @@ def run_time_travel_replay(req: ReplayRequest, db: Session = Depends(get_db)):
     mod_pay_data["risk_level"] = mod_analysis["risk_level"]
     mod_plan = RecoveryPlanner.plan(mod_analysis, mod_pay_data, mod_meta)
     mod_critic = RecoveryCritic.critique(mod_plan, mod_pay_data, mod_meta)
-    mod_policy = PolicyEngine.evaluate(mod_plan["recommended_action"], mod_pay_data, mod_meta, config, dry_run=True)
+    mod_action, mod_override_applied = _effective_action(mod_plan, mod_critic)
+    mod_policy = PolicyEngine.evaluate(mod_action, mod_pay_data, mod_meta, config, dry_run=True)
 
     return {
         "original_trace": {
@@ -107,8 +120,9 @@ def run_time_travel_replay(req: ReplayRequest, db: Session = Depends(get_db)):
             },
             "stage_1_analysis": orig_analysis,
             "stage_2_planner": orig_plan,
-            "stage_3_critic": orig_critic,
+            "stage_3_critic": {**orig_critic, "override_applied": orig_override_applied, "effective_action": orig_action},
             "stage_4_policy": {
+                "action_evaluated": orig_action,
                 "allowed": orig_policy.allowed,
                 "rule": orig_policy.policy_rule,
                 "reason": orig_policy.reason,
@@ -126,8 +140,9 @@ def run_time_travel_replay(req: ReplayRequest, db: Session = Depends(get_db)):
             },
             "stage_1_analysis": mod_analysis,
             "stage_2_planner": mod_plan,
-            "stage_3_critic": mod_critic,
+            "stage_3_critic": {**mod_critic, "override_applied": mod_override_applied, "effective_action": mod_action},
             "stage_4_policy": {
+                "action_evaluated": mod_action,
                 "allowed": mod_policy.allowed,
                 "rule": mod_policy.policy_rule,
                 "reason": mod_policy.reason,
