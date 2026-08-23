@@ -15,10 +15,14 @@ ADDITIVE_COLUMNS = {
         "ground_truth_recoverable": "BOOLEAN",
         "ground_truth_prob": "FLOAT",
         "outcome_seed": "INTEGER",
+        "merchant_id": "VARCHAR(64)",
     },
     "audit_events": {
         "prev_hash": "VARCHAR(64)",
         "entry_hash": "VARCHAR(64)",
+    },
+    "recovery_executions": {
+        "decision_id": "VARCHAR(64)",
     },
 }
 

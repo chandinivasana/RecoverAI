@@ -7,6 +7,7 @@ from ..models import (
     DBPayment, DBPaymentEvent, DBPolicyConfig, PaymentStatus, FailureCategory
 )
 from .outcome_model import assign_ground_truth
+from .utils import merchant_for_amount
 
 INDIAN_NAMES = [
     "Aarav Sharma", "Priya Patel", "Rohan Mehta", "Ananya Iyer", "Vikram Reddy",
@@ -198,6 +199,7 @@ def seed_database(db: Session, total_dev: int = 800, total_eval: int = 200, forc
                 amount_recovered=0.0,
                 risk_score=risk_score,
                 dataset_split=split_name,
+                merchant_id=merchant_for_amount(amount),
                 ground_truth_recoverable=gt_recoverable,
                 ground_truth_prob=gt_prob,
                 outcome_seed=outcome_seed,

@@ -1,11 +1,9 @@
-import json
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from ..database import get_db
-import ast
 from ..models import (
     DBHumanReview, DBPayment, DBRecoveryDecision, DBPolicyDecision,
     DBPolicyConfig, ReviewStatus, PaymentStatus, HumanReviewActionRequest, RecoveryAction
@@ -14,6 +12,7 @@ from ..agents.payment_analyst import PaymentAnalyst
 from ..agents.recovery_executor import RecoveryExecutor
 from ..core.audit import append_audit
 from ..core.llm_reasoner import get_reasoner
+from ..core.utils import safe_json_loads
 from ..policy.engine import PolicyEngine
 
 
@@ -24,19 +23,6 @@ router = APIRouter(prefix="/api/reviews", tags=["Human Review"])
 
 VALID_ACTIONS = {a.value for a in RecoveryAction}
 EXECUTABLE_ACTIONS = VALID_ACTIONS - {RecoveryAction.HUMAN_REVIEW.value}
-
-def safe_json_loads(val):
-    if not val:
-        return {}
-    if isinstance(val, dict):
-        return val
-    try:
-        return json.loads(val)
-    except Exception:
-        try:
-            return ast.literal_eval(val)
-        except Exception:
-            return {"raw": str(val)}
 
 @router.get("")
 def list_human_reviews(

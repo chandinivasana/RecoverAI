@@ -7,27 +7,11 @@ from ..database import get_db
 from ..models import DBPayment, DBPolicyConfig, RiskLevel, RecoveryAction
 from ..agents.payment_analyst import PaymentAnalyst
 from ..agents.recovery_planner import RecoveryPlanner
+from ..core.config_store import get_active_policy_config
 from ..core.outcome_model import GT_SEED, assign_ground_truth, simulate_action_outcome
 from ..policy.engine import PolicyEngine
 
 router = APIRouter(prefix="/api/evaluation", tags=["Evaluation"])
-
-def _get_active_policy_config(db: Session) -> DBPolicyConfig:
-    config = db.query(DBPolicyConfig).first()
-    if not config:
-        config = DBPolicyConfig(
-            max_autonomous_retry_attempts=2,
-            max_autonomous_amount=25000.0,
-            require_human_high_risk=True,
-            stop_on_repeated_failure=True,
-            require_customer_consent_for_nudge=True,
-            escalate_unknown_failure=True,
-            vulcan_enabled=True,
-            updated_at=datetime.utcnow()
-        )
-        db.add(config)
-        db.commit()
-    return config
 
 @router.post("/run")
 def run_evaluation_benchmark(
@@ -38,7 +22,7 @@ def run_evaluation_benchmark(
     Runs an offline evaluation benchmark across the held-out dataset (200 records).
     Computes recovery rate, revenue metrics, safety policy block rate (100%), and calibration.
     """
-    config = _get_active_policy_config(db)
+    config = get_active_policy_config(db)
     
     query = db.query(DBPayment)
     if dataset_split != "all":

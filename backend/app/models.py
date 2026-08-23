@@ -63,6 +63,9 @@ class DBPayment(Base):
     amount_recovered = Column(Float, default=0.0)
     risk_score = Column(Float, default=0.1)
     dataset_split = Column(String(16), default="dev")  # dev, eval
+    # Multi-tenant isolation: every payment belongs to exactly one merchant
+    # (assigned deterministically by core/utils.py::merchant_for_amount).
+    merchant_id = Column(String(64), index=True, nullable=True)
     # Synthetic-benchmark ground truth (see core/outcome_model.py). Latent
     # recoverability drawn independently of the planner; nullable so ad-hoc
     # payments get it lazily assigned at execution time.
@@ -136,6 +139,9 @@ class DBRecoveryExecution(Base):
     id = Column(Integer, primary_key=True, index=True)
     execution_id = Column(String(64), unique=True, index=True, nullable=False)
     payment_id = Column(String(64), ForeignKey("payments.payment_id"), index=True, nullable=False)
+    # Links the execution back to the decision that produced it, so analytics
+    # can join executions to failure types without heuristics.
+    decision_id = Column(String(64), index=True, nullable=True)
     action = Column(String(32), nullable=False)
     status = Column(String(32), nullable=False)  # SUCCESS, FAILED, ESCALATED, STOPPED
     result = Column(Text, nullable=False)

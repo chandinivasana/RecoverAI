@@ -1,32 +1,19 @@
 import json
-import ast
 from datetime import datetime
-from typing import Optional, List, Any, Dict
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import (
     DBPayment, DBPaymentEvent, DBAuditEvent, DBRecoveryDecision, DBPolicyDecision,
-    DBRecoveryExecution, DBHumanReview, PaymentEventIngestRequest, PaymentResponse,
+    DBRecoveryExecution, DBHumanReview, PaymentEventIngestRequest,
     PaymentStatus
 )
 from ..core.audit import append_audit
 from ..core.idempotency import IdempotencyManager
+from ..core.utils import merchant_for_amount, safe_json_loads
 
 router = APIRouter(prefix="/api/payments", tags=["Payments"])
-
-def safe_json_loads(val: Any) -> Dict[str, Any]:
-    if not val:
-        return {}
-    if isinstance(val, dict):
-        return val
-    try:
-        return json.loads(val)
-    except Exception:
-        try:
-            return ast.literal_eval(val)
-        except Exception:
-            return {"raw": str(val)}
 
 @router.post("/events")
 def ingest_payment_event(req: PaymentEventIngestRequest, db: Session = Depends(get_db)):
@@ -84,6 +71,7 @@ def ingest_payment_event(req: PaymentEventIngestRequest, db: Session = Depends(g
             amount_recovered=0.0,
             risk_score=meta.get("risk_score", 0.1),
             dataset_split="dev",
+            merchant_id=merchant_for_amount(req.amount),
             metadata_json=json.dumps(meta),
             created_at=datetime.utcnow()
         )
@@ -110,6 +98,7 @@ def list_payments(
     status: Optional[str] = None,
     dataset_split: Optional[str] = None,
     payment_method: Optional[str] = None,
+    merchant_id: Optional[str] = None,
     min_amount: Optional[float] = None,
     max_amount: Optional[float] = None,
     search: Optional[str] = None,
@@ -118,11 +107,13 @@ def list_payments(
     db: Session = Depends(get_db)
 ):
     """
-    List payments with dynamic filters.
+    List payments with dynamic filters (multi-tenant via merchant_id).
     """
     query = db.query(DBPayment)
     if status:
         query = query.filter(DBPayment.status == status)
+    if merchant_id:
+        query = query.filter(DBPayment.merchant_id == merchant_id)
     if dataset_split:
         query = query.filter(DBPayment.dataset_split == dataset_split)
     if payment_method:
@@ -158,6 +149,7 @@ def list_payments(
             "amount_recovered": p.amount_recovered,
             "risk_score": p.risk_score,
             "dataset_split": p.dataset_split,
+            "merchant_id": p.merchant_id,
             "customer_context": meta,
             "created_at": p.created_at
         })

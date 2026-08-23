@@ -17,7 +17,7 @@ import { HumanReviewItem } from '../types';
 export default function Home() {
   const [activeTab, setActiveTab] = useState<ActiveView>('dashboard');
   const [selectedPaymentId, setSelectedPaymentId] = useState<string | null>(null);
-  const [selectedMerchant, setSelectedMerchant] = useState<string>('merch_urban_comp');
+  const [selectedMerchant, setSelectedMerchant] = useState<string>(''); // '' = all merchants
   const [isTestMode, setIsTestMode] = useState<boolean>(true);
   const [showCustomerPreview, setShowCustomerPreview] = useState<boolean>(false);
   const [reviews, setReviews] = useState<HumanReviewItem[]>([]);
@@ -40,6 +40,7 @@ export default function Home() {
   const pendingCount = reviews.filter((r) => r.status === 'PENDING').length;
 
   const merchantNames: Record<string, string> = {
+    '': 'All Merchants',
     merch_swiggy_ind: 'Swiggy India',
     merch_urban_comp: 'Urban Company',
     merch_tata_lux: 'Tata Luxury',
@@ -55,7 +56,7 @@ export default function Home() {
         onOpenCustomerPreview={() => setShowCustomerPreview(true)}
         isTestMode={isTestMode}
         onToggleTestMode={() => setIsTestMode(!isTestMode)}
-        merchantName={merchantNames[selectedMerchant] || 'Urban Company'}
+        merchantName={merchantNames[selectedMerchant] || 'All Merchants'}
       />
 
       {/* 2. Main Dashboard Area */}
@@ -76,6 +77,7 @@ export default function Home() {
             <Dashboard
               onSelectPayment={(id) => setSelectedPaymentId(id)}
               onNavigateToReviews={() => setActiveTab('reviews')}
+              merchantId={selectedMerchant}
             />
           )}
 

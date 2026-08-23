@@ -10,6 +10,7 @@ from ..models import (
     PaymentStatus, RecoveryAction
 )
 from ..core.audit import append_audit
+from ..core.config_store import get_active_policy_config
 from ..core.llm_reasoner import get_reasoner
 from ..agents.payment_analyst import PaymentAnalyst
 from ..agents.recovery_planner import RecoveryPlanner
@@ -69,24 +70,6 @@ def _attach_llm_enrichment(db: Session, payment_id: str, analysis: Dict[str, Any
     analysis["llm_enrichment"] = enrichment
     _audit_llm_degradation(db, payment_id, "analyst_enrichment", enrichment)
 
-def _get_active_policy_config(db: Session) -> DBPolicyConfig:
-    config = db.query(DBPolicyConfig).first()
-    if not config:
-        config = DBPolicyConfig(
-            max_autonomous_retry_attempts=2,
-            max_autonomous_amount=25000.0,
-            require_human_high_risk=True,
-            stop_on_repeated_failure=True,
-            require_customer_consent_for_nudge=True,
-            escalate_unknown_failure=True,
-            vulcan_enabled=True,
-            updated_at=datetime.utcnow()
-        )
-        db.add(config)
-        db.commit()
-        db.refresh(config)
-    return config
-
 @router.post("/{payment_id}/analyze")
 def analyze_payment(payment_id: str, db: Session = Depends(get_db)):
     """
@@ -96,7 +79,7 @@ def analyze_payment(payment_id: str, db: Session = Depends(get_db)):
     if not payment:
         raise HTTPException(status_code=404, detail="Payment not found")
 
-    config = _get_active_policy_config(db)
+    config = get_active_policy_config(db)
     cust_ctx = json.loads(payment.metadata_json or "{}")
     pay_data = {
         "payment_id": payment.payment_id,
@@ -125,7 +108,7 @@ def plan_recovery(payment_id: str, db: Session = Depends(get_db)):
     if not payment:
         raise HTTPException(status_code=404, detail="Payment not found")
 
-    config = _get_active_policy_config(db)
+    config = get_active_policy_config(db)
     cust_ctx = json.loads(payment.metadata_json or "{}")
     pay_data = {
         "payment_id": payment.payment_id,
@@ -188,7 +171,7 @@ def process_full_recovery_pipeline(payment_id: str, db: Session = Depends(get_db
     if not payment:
         raise HTTPException(status_code=404, detail="Payment not found")
 
-    config = _get_active_policy_config(db)
+    config = get_active_policy_config(db)
     cust_ctx = json.loads(payment.metadata_json or "{}")
     pay_data = {
         "payment_id": payment.payment_id,

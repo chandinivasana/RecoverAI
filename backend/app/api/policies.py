@@ -8,33 +8,16 @@ from ..models import (
 )
 from ..agents.payment_analyst import PaymentAnalyst
 from ..agents.recovery_planner import RecoveryPlanner
+from ..core.config_store import get_active_policy_config
 from ..core.cost_optimizer import CostOptimizer
 from ..core.outcome_model import assign_ground_truth, simulate_action_outcome
 from ..policy.engine import PolicyEngine
 
 router = APIRouter(prefix="/api/policies", tags=["Policies"])
 
-def _get_or_create_config(db: Session) -> DBPolicyConfig:
-    config = db.query(DBPolicyConfig).first()
-    if not config:
-        config = DBPolicyConfig(
-            max_autonomous_retry_attempts=2,
-            max_autonomous_amount=25000.0,
-            require_human_high_risk=True,
-            stop_on_repeated_failure=True,
-            require_customer_consent_for_nudge=True,
-            escalate_unknown_failure=True,
-            vulcan_enabled=True,
-            updated_at=datetime.utcnow()
-        )
-        db.add(config)
-        db.commit()
-        db.refresh(config)
-    return config
-
 @router.get("", response_model=PolicyConfigSchema)
 def get_policies(db: Session = Depends(get_db)):
-    config = _get_or_create_config(db)
+    config = get_active_policy_config(db)
     return PolicyConfigSchema(
         max_autonomous_retry_attempts=config.max_autonomous_retry_attempts,
         max_autonomous_amount=config.max_autonomous_amount,
@@ -47,7 +30,7 @@ def get_policies(db: Session = Depends(get_db)):
 
 @router.put("", response_model=PolicyConfigSchema)
 def update_policies(new_config: PolicyConfigSchema, db: Session = Depends(get_db)):
-    config = _get_or_create_config(db)
+    config = get_active_policy_config(db)
     config.max_autonomous_retry_attempts = new_config.max_autonomous_retry_attempts
     config.max_autonomous_amount = new_config.max_autonomous_amount
     config.require_human_high_risk = new_config.require_human_high_risk
@@ -66,7 +49,7 @@ def simulate_policy_impact(req: PolicySimulationRequest, db: Session = Depends(g
     Simulates what would happen if merchant policy changed (e.g. limit raised from ₹25k to ₹50k).
     Runs offline evaluation on transactions to measure projected revenue gain vs additional risk exposure.
     """
-    current_config = _get_or_create_config(db)
+    current_config = get_active_policy_config(db)
     
     query = db.query(DBPayment)
     if req.dataset_split and req.dataset_split != "all":

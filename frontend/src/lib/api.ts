@@ -2,21 +2,42 @@ import { PolicyConfig } from '../types';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-export async function fetchKPIs() {
-  const res = await fetch(`${API_BASE}/api/analytics/kpis`, { cache: 'no-store' });
+const merchantQuery = (merchantId?: string) =>
+  merchantId ? `?merchant_id=${encodeURIComponent(merchantId)}` : '';
+
+export async function fetchKPIs(merchantId?: string) {
+  const res = await fetch(`${API_BASE}/api/analytics/kpis${merchantQuery(merchantId)}`, { cache: 'no-store' });
   if (!res.ok) throw new Error('Failed to fetch KPIs');
   return res.json();
 }
 
-export async function fetchTimeseries() {
-  const res = await fetch(`${API_BASE}/api/analytics/timeseries`, { cache: 'no-store' });
+export async function fetchTimeseries(merchantId?: string) {
+  const res = await fetch(`${API_BASE}/api/analytics/timeseries${merchantQuery(merchantId)}`, { cache: 'no-store' });
   if (!res.ok) throw new Error('Failed to fetch timeseries');
   return res.json();
 }
 
-export async function fetchStrategies() {
-  const res = await fetch(`${API_BASE}/api/analytics/strategies`, { cache: 'no-store' });
+export async function fetchStrategies(merchantId?: string) {
+  const res = await fetch(`${API_BASE}/api/analytics/strategies${merchantQuery(merchantId)}`, { cache: 'no-store' });
   if (!res.ok) throw new Error('Failed to fetch strategies');
+  return res.json();
+}
+
+export interface MerchantProfile {
+  merchant_id: string;
+  merchant_name: string;
+  industry: string;
+  autonomous_amount_cap: number;
+  currency: string;
+  payments_count: number;
+  revenue_at_risk: number;
+  revenue_recovered: number;
+  avg_recovery_rate: number;
+}
+
+export async function fetchMerchants(): Promise<MerchantProfile[]> {
+  const res = await fetch(`${API_BASE}/api/analytics/merchants`, { cache: 'no-store' });
+  if (!res.ok) throw new Error('Failed to fetch merchants');
   return res.json();
 }
 
@@ -36,6 +57,7 @@ export async function fetchPayments(params: {
   status?: string;
   dataset_split?: string;
   payment_method?: string;
+  merchant_id?: string;
   search?: string;
   limit?: number;
   offset?: number;
@@ -44,6 +66,7 @@ export async function fetchPayments(params: {
   if (params.status) query.set('status', params.status);
   if (params.dataset_split) query.set('dataset_split', params.dataset_split);
   if (params.payment_method) query.set('payment_method', params.payment_method);
+  if (params.merchant_id) query.set('merchant_id', params.merchant_id);
   if (params.search) query.set('search', params.search);
   if (params.limit) query.set('limit', params.limit.toString());
   if (params.offset) query.set('offset', params.offset.toString());

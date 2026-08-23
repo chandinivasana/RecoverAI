@@ -16,9 +16,10 @@ import { ABExperimentWidget } from './ABExperimentWidget';
 interface DashboardProps {
   onSelectPayment: (paymentId: string) => void;
   onNavigateToReviews: () => void;
+  merchantId?: string; // '' or undefined = all merchants
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ onSelectPayment, onNavigateToReviews }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ onSelectPayment, onNavigateToReviews, merchantId }) => {
   const [kpis, setKpis] = useState<DashboardKPIs | null>(null);
   const [timeseries, setTimeseries] = useState<any[]>([]);
   const [strategies, setStrategies] = useState<StrategyStat[]>([]);
@@ -36,10 +37,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ onSelectPayment, onNavigat
   const loadData = async () => {
     try {
       const [kpiRes, tsRes, stratRes, payRes, feedRes, anomRes] = await Promise.all([
-        fetchKPIs(),
-        fetchTimeseries(),
-        fetchStrategies(),
-        fetchPayments({ status: statusFilter || undefined, payment_method: methodFilter || undefined, search: search || undefined, limit: 15 }),
+        fetchKPIs(merchantId || undefined),
+        fetchTimeseries(merchantId || undefined),
+        fetchStrategies(merchantId || undefined),
+        fetchPayments({ status: statusFilter || undefined, payment_method: methodFilter || undefined, merchant_id: merchantId || undefined, search: search || undefined, limit: 15 }),
         fetchAgentFeed(15),
         fetchAnomalies(),
       ]);
@@ -58,7 +59,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onSelectPayment, onNavigat
     loadData();
     const interval = setInterval(loadData, 10000);
     return () => clearInterval(interval);
-  }, [statusFilter, methodFilter, search]);
+  }, [statusFilter, methodFilter, search, merchantId]);
 
   const handleRunSingleRecovery = async (paymentId: string) => {
     setSingleProcessing(paymentId);

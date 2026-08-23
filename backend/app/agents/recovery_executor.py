@@ -68,6 +68,7 @@ class RecoveryExecutor:
                 exec_record = DBRecoveryExecution(
                     execution_id=execution_id,
                     payment_id=payment.payment_id,
+                    decision_id=decision_data.get("decision_id"),
                     action=action,
                     status="ESCALATED",
                     result=f"Blocked by policy '{policy_result.policy_rule}'. Escalated to Human Review Queue.",
@@ -99,6 +100,7 @@ class RecoveryExecutor:
                 exec_record = DBRecoveryExecution(
                     execution_id=execution_id,
                     payment_id=payment.payment_id,
+                    decision_id=decision_data.get("decision_id"),
                     action=RecoveryAction.STOP.value,
                     status="STOPPED",
                     result=f"Recovery halted by policy rule '{policy_result.policy_rule}': {policy_result.reason}",
@@ -128,6 +130,7 @@ class RecoveryExecutor:
             exec_record = DBRecoveryExecution(
                 execution_id=execution_id,
                 payment_id=payment.payment_id,
+                decision_id=decision_data.get("decision_id"),
                 action=action,
                 status="STOPPED",
                 result="Autonomous recovery intentionally halted per planner decision.",
@@ -171,6 +174,7 @@ class RecoveryExecutor:
             exec_record = DBRecoveryExecution(
                 execution_id=execution_id,
                 payment_id=payment.payment_id,
+                decision_id=decision_data.get("decision_id"),
                 action=action,
                 status="ESCALATED",
                 result=result_text,
@@ -279,6 +283,7 @@ class RecoveryExecutor:
         exec_record = DBRecoveryExecution(
             execution_id=execution_id,
             payment_id=payment.payment_id,
+            decision_id=decision_data.get("decision_id"),
             action=action,
             status="SUCCESS" if is_success else "FAILED",
             result=result_text,
