@@ -14,8 +14,12 @@ class PolicyEngine:
         recommended_action: str,
         payment_data: Dict[str, Any],
         customer_context: Dict[str, Any],
-        config: DBPolicyConfig
+        config: DBPolicyConfig,
+        dry_run: bool = False
     ) -> PolicyEvaluationResult:
+        # dry_run: read-only evaluation (benchmarks, what-if simulation, replay).
+        # It must not mutate shared state such as acquirer rate-limit counters,
+        # otherwise repeated read-only passes change live results.
         try:
             # 1. Stop action is always allowed safely
             if recommended_action == RecoveryAction.STOP.value:
@@ -108,7 +112,7 @@ class PolicyEngine:
             if recommended_action == RecoveryAction.RETRY.value:
                 method = str(payment_data.get("payment_method", "upi"))
                 err = str(payment_data.get("error_code", ""))
-                has_capacity, rate_info = PolicyRules.check_acquirer_rate_limits(method, err)
+                has_capacity, rate_info = PolicyRules.check_acquirer_rate_limits(method, err, dry_run=dry_run)
                 if not has_capacity:
                     return PolicyEvaluationResult(
                         allowed=False,

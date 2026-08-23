@@ -1,23 +1,43 @@
+import os
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
 from .database import engine, Base, SessionLocal
+from .core.schema_guard import ensure_columns
 from .core.seed_data import seed_database
+from .core.demo_warmup import warm_start_demo
 from .api import payments, recovery, policies, reviews, evaluation, analytics, replay, redteam
 
-# Initialize DB Tables
-Base.metadata.create_all(bind=engine)
 
-# Seed dataset on initial run
-db = SessionLocal()
-try:
-    seed_database(db, total_dev=800, total_eval=200)
-finally:
-    db.close()
+def _env_flag(name: str, default: str) -> bool:
+    return os.getenv(name, default).strip().lower() in ("1", "true", "yes", "on")
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    # Startup: create tables, apply additive column guards, then (optionally) seed.
+    # Gated by env so importing this module (tests, tooling, context generation)
+    # stays side-effect free and CI never seeds implicitly.
+    Base.metadata.create_all(bind=engine)
+    ensure_columns(engine)
+    if _env_flag("SEED_ON_STARTUP", "true"):
+        db = SessionLocal()
+        try:
+            seed_database(db, total_dev=800, total_eval=200)
+            if _env_flag("DEMO_WARM_START", "false"):
+                warm_start_demo(db)
+        finally:
+            db.close()
+    yield
+
 
 app = FastAPI(
     title="RecoverAI — Agentic Payment Recovery & Revenue Intelligence API",
     description="Track 3 Buildathon MVP: Decision + Recovery + Measurement System",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan,
 )
 
 # CORS configuration

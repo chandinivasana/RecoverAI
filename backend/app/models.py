@@ -63,6 +63,12 @@ class DBPayment(Base):
     amount_recovered = Column(Float, default=0.0)
     risk_score = Column(Float, default=0.1)
     dataset_split = Column(String(16), default="dev")  # dev, eval
+    # Synthetic-benchmark ground truth (see core/outcome_model.py). Latent
+    # recoverability drawn independently of the planner; nullable so ad-hoc
+    # payments get it lazily assigned at execution time.
+    ground_truth_recoverable = Column(Boolean, nullable=True)
+    ground_truth_prob = Column(Float, nullable=True)
+    outcome_seed = Column(Integer, nullable=True)
     metadata_json = Column(Text, default="{}")
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -307,7 +313,8 @@ class PolicySimulationResponse(BaseModel):
     escalations_delta: int
     risk_exposure_change_percent: float
     projected_monthly_revenue_gain: float = 0.0
-    estimated_roi_multiplier: float = 14.2
+    estimated_roi_multiplier: float = 0.0
+    projection_basis: str = ""
     explanation: str
 
 class HumanReviewActionRequest(BaseModel):

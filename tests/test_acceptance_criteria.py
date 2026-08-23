@@ -160,7 +160,12 @@ def test_ac8_simulated_recovery_execution(test_db):
         status=PaymentStatus.FAILED.value,
         failure_reason="Network timeout",
         error_code="GATEWAY_TIMEOUT",
-        retry_count=0
+        retry_count=0,
+        # Pinned ground truth: latently recoverable, outcome_seed=7 is a known
+        # RETRY-success seed for TEMPORARY_NETWORK_FAILURE in the outcome model.
+        ground_truth_recoverable=True,
+        ground_truth_prob=0.9,
+        outcome_seed=7
     )
     test_db.add(payment)
     test_db.commit()
@@ -172,7 +177,7 @@ def test_ac8_simulated_recovery_execution(test_db):
         payment=payment,
         action=RecoveryAction.RETRY.value,
         policy_result=policy_res,
-        decision_data={"recovery_probability": 0.85, "risk_level": "LOW", "reason": "Safe network retry"}
+        decision_data={"recovery_probability": 0.85, "risk_level": "LOW", "failure_type": "TEMPORARY_NETWORK_FAILURE", "reason": "Safe network retry"}
     )
     assert exec_res["status"] == "SUCCESS"
     assert payment.status == PaymentStatus.RECOVERED.value

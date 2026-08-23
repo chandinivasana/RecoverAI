@@ -224,6 +224,7 @@ def process_full_recovery_pipeline(payment_id: str, db: Session = Depends(get_db
             "decision_id": decision_id,
             "recovery_probability": plan["recovery_probability"],
             "risk_level": analysis["risk_level"],
+            "failure_type": analysis["failure_type"],
             "reason": plan["reason"]
         }
     )

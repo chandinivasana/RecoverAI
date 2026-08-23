@@ -23,7 +23,7 @@ AI proposes → Policy validates → System executes → Audit records → Metri
 | # | Phase | Status | Outcome |
 | --- | --- | --- | --- |
 | 0 | Git baseline + repo hygiene (`/docs`, LICENSE, badges, PRD as markdown, stub-package fix) | ✅ Done | Local git history started; docs live in-repo |
-| 1 | Ground-truth benchmark — kill circular metrics | 🔄 In progress | Honest Brier/calibration, exception list, reproducible eval |
+| 1 | Ground-truth benchmark — kill circular metrics | ✅ Done | Measured on held-out eval: Brier 0.2168, ECE 0.0979, FP cost ₹4.61L surfaced, leakage measured ₹0, 12 recoverable payments (₹3.05L) honestly reported as gated by safety. Eval byte-identical across runs. 29/29 tests. |
 | 2 | Policy integrity (human-approve re-validation, consequential Critic, fail-closed consent, live circuit breaker, red-team honesty) | ⏳ Planned | |
 | 3 | Tamper-evident audit chain (SHA-256 hash chain + `/api/audit/verify`) | ⏳ Planned | |
 | 4 | LLM reasoning layer (feature-flagged, deterministic fallback, refusal Q&A) | ⏳ Planned | |

@@ -121,6 +121,11 @@ def test_full_pipeline_execution(test_db):
         failure_reason="Bank network timeout",
         error_code="GATEWAY_TIMEOUT",
         retry_count=0,
+        # Pinned ground truth: outcome_seed=7 is a known RETRY-success seed
+        # for TEMPORARY_NETWORK_FAILURE in the outcome model.
+        ground_truth_recoverable=True,
+        ground_truth_prob=0.9,
+        outcome_seed=7,
         metadata_json='{"past_successful_payments": 10, "risk_score": 0.05, "has_messaging_consent": true}'
     )
     test_db.add(payment)
@@ -155,7 +160,7 @@ def test_full_pipeline_execution(test_db):
         payment=payment,
         action=plan["recommended_action"],
         policy_result=policy_res,
-        decision_data={"recovery_probability": plan["recovery_probability"], "risk_level": "LOW", "reason": plan["reason"]}
+        decision_data={"recovery_probability": plan["recovery_probability"], "risk_level": "LOW", "failure_type": analysis["failure_type"], "reason": plan["reason"]}
     )
 
     assert exec_res["status"] == "SUCCESS"

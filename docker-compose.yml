@@ -46,6 +46,11 @@ services:
       - DATABASE_URL=postgresql://postgres:recoveraipassword@postgres:5432/recoverai
       - REDIS_URL=redis://redis:6379/0
       - ENVIRONMENT=production
+      - SEED_ON_STARTUP=true
+      # Warm-start: batch-process a slice of dev payments at boot so the
+      # dashboard shows real non-zero numbers on first open (demo payments
+      # pay_dev_0001/0002 are reserved and never consumed).
+      - DEMO_WARM_START=true
     ports:
       - "8000:8000"
     depends_on:
