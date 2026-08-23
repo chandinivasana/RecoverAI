@@ -1,0 +1,72 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    /* Razorpay Blade Light Tokens */
+    --bg-app: #F8FAFC;
+    --bg-sidebar: #0C2340;
+    --bg-sidebar-hover: #13335A;
+    --bg-sidebar-active: #0C8CE9;
+    --bg-header: #FFFFFF;
+    --bg-card: #FFFFFF;
+    --bg-surface: #FFFFFF;
+    --bg-subtle: #F1F5F9;
+    --bg-input: #FFFFFF;
+    --border-main: #E2E8F0;
+    --border-subtle: #CBD5E1;
+    --text-main: #0F172A;
+    --text-muted: #64748B;
+    --text-dim: #94A3B8;
+    --accent-main: #0C8CE9;
+    --accent-hover: #0066F5;
+    --table-hover: #F8FAFC;
+  }
+
+  [data-theme="dark"], .dark {
+    /* Razorpay Blade Dark / Night Tokens */
+    --bg-app: #07101E;
+    --bg-sidebar: #050B15;
+    --bg-sidebar-hover: #0C182B;
+    --bg-sidebar-active: #0C8CE9;
+    --bg-header: #0C182B;
+    --bg-card: #0C182B;
+    --bg-surface: #0C182B;
+    --bg-subtle: #11223D;
+    --bg-input: #07101E;
+    --border-main: #1E355B;
+    --border-subtle: #2A4878;
+    --text-main: #F8FAFC;
+    --text-muted: #94A3B8;
+    --text-dim: #64748B;
+    --accent-main: #0C8CE9;
+    --accent-hover: #38BDF8;
+    --table-hover: #11223D;
+  }
+}
+
+body {
+  background-color: var(--bg-app);
+  color: var(--text-main);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom Razorpay Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-main);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-subtle);
+}
