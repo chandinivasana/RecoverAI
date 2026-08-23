@@ -67,5 +67,5 @@ class PolicyRules:
         return True, "Customer DPDP communication consent verified."
 
     @staticmethod
-    def check_acquirer_rate_limits(payment_method: str, error_code: str = "") -> Tuple[bool, Dict[str, Any]]:
-        return AcquirerRateLimitManager.check_acquirer_capacity(payment_method, error_code)
+    def check_acquirer_rate_limits(payment_method: str, error_code: str = "", dry_run: bool = False) -> Tuple[bool, Dict[str, Any]]:
+        return AcquirerRateLimitManager.check_acquirer_capacity(payment_method, error_code, dry_run=dry_run)

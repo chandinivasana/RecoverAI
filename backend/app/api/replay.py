@@ -66,7 +66,7 @@ def run_time_travel_replay(req: ReplayRequest, db: Session = Depends(get_db)):
     orig_pay_data["risk_level"] = orig_analysis["risk_level"]
     orig_plan = RecoveryPlanner.plan(orig_analysis, orig_pay_data, base_meta)
     orig_critic = RecoveryCritic.critique(orig_plan, orig_pay_data, base_meta)
-    orig_policy = PolicyEngine.evaluate(orig_plan["recommended_action"], orig_pay_data, base_meta, config)
+    orig_policy = PolicyEngine.evaluate(orig_plan["recommended_action"], orig_pay_data, base_meta, config, dry_run=True)
 
     # 2. Run Replay / Modified Pipeline Trace
     mod_amount = req.override_amount if req.override_amount is not None else base_amount
@@ -94,7 +94,7 @@ def run_time_travel_replay(req: ReplayRequest, db: Session = Depends(get_db)):
     mod_pay_data["risk_level"] = mod_analysis["risk_level"]
     mod_plan = RecoveryPlanner.plan(mod_analysis, mod_pay_data, mod_meta)
     mod_critic = RecoveryCritic.critique(mod_plan, mod_pay_data, mod_meta)
-    mod_policy = PolicyEngine.evaluate(mod_plan["recommended_action"], mod_pay_data, mod_meta, config)
+    mod_policy = PolicyEngine.evaluate(mod_plan["recommended_action"], mod_pay_data, mod_meta, config, dry_run=True)
 
     return {
         "original_trace": {

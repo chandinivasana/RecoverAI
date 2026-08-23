@@ -19,9 +19,12 @@ class AcquirerRateLimitManager:
     }
 
     @classmethod
-    def check_acquirer_capacity(cls, payment_method: str, error_code: str = "") -> Tuple[bool, Dict[str, Any]]:
+    def check_acquirer_capacity(cls, payment_method: str, error_code: str = "", dry_run: bool = False) -> Tuple[bool, Dict[str, Any]]:
         """
         Check if the target acquirer bank has capacity or if circuit breaker is open.
+        dry_run=True peeks at the counter without incrementing it — used by
+        read-only evaluation/simulation/replay passes so they stay deterministic
+        and never consume live acquirer capacity.
         """
         # Determine target acquirer
         acquirer = "NPCI_UPI" if payment_method.lower() == "upi" else "HDFC"
@@ -47,7 +50,10 @@ class AcquirerRateLimitManager:
         # Check rate limits via Redis sliding counter
         current_minute = int(time.time() // 60)
         counter_key = f"rate:acquirer:{acquirer}:{current_minute}"
-        current_count = RedisManager.incr(counter_key, ex=90)
+        if dry_run:
+            current_count = int(RedisManager.get(counter_key) or 0)
+        else:
+            current_count = RedisManager.incr(counter_key, ex=90)
 
         if current_count > max_rpm:
             return False, {

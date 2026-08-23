@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from ..models import (
     DBPayment, DBPaymentEvent, DBPolicyConfig, PaymentStatus, FailureCategory
 )
+from .outcome_model import assign_ground_truth
 
 INDIAN_NAMES = [
     "Aarav Sharma", "Priya Patel", "Rohan Mehta", "Ananya Iyer", "Vikram Reddy",
@@ -173,6 +174,13 @@ def seed_database(db: Session, total_dev: int = 800, total_eval: int = 200, forc
 
             created_time = datetime.utcnow() - timedelta(days=random.randint(0, 14), minutes=random.randint(0, 1400))
 
+            # Latent ground truth for the synthetic benchmark — drawn from an
+            # independent RNG stream keyed per payment (see core/outcome_model.py).
+            # The planner never sees these fields.
+            gt_recoverable, gt_prob, outcome_seed = assign_ground_truth(
+                pay_id, scenario["category"].value, amount, meta
+            )
+
             payment = DBPayment(
                 payment_id=pay_id,
                 customer_id=cust_id,
@@ -190,6 +198,9 @@ def seed_database(db: Session, total_dev: int = 800, total_eval: int = 200, forc
                 amount_recovered=0.0,
                 risk_score=risk_score,
                 dataset_split=split_name,
+                ground_truth_recoverable=gt_recoverable,
+                ground_truth_prob=gt_prob,
+                outcome_seed=outcome_seed,
                 metadata_json=json.dumps(meta),
                 created_at=created_time,
                 updated_at=created_time

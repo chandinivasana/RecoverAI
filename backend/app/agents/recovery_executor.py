@@ -5,8 +5,9 @@ from typing import Dict, Any
 from sqlalchemy.orm import Session
 from ..models import (
     DBPayment, DBRecoveryExecution, DBAuditEvent, DBHumanReview,
-    RecoveryAction, PaymentStatus, ReviewStatus
+    RecoveryAction, PaymentStatus, ReviewStatus, FailureCategory
 )
+from ..core.outcome_model import assign_ground_truth, simulate_action_outcome
 from ..policy.rules import PolicyEvaluationResult
 
 class RecoveryExecutor:
@@ -146,10 +147,73 @@ class RecoveryExecutor:
                 "details": {}
             }
 
-        # Simulated Execution of Approved Action
-        is_success = prob >= 0.50
+        if action == RecoveryAction.HUMAN_REVIEW.value:
+            # Approved escalation: hand off to the review queue. An escalation
+            # never settles money itself, so it records no recovered amount.
+            review_id = f"rev_{uuid.uuid4().hex[:8]}"
+            review = DBHumanReview(
+                review_id=review_id,
+                payment_id=payment.payment_id,
+                decision_id=decision_data.get("decision_id", "dec_manual"),
+                amount=amount,
+                reason=decision_data.get("reason", "Escalated for human oversight"),
+                risk_level=decision_data.get("risk_level", "HIGH"),
+                status=ReviewStatus.PENDING.value,
+                proposed_action=action,
+                created_at=datetime.utcnow()
+            )
+            db.add(review)
+            payment.status = PaymentStatus.ESCALATED_TO_HUMAN.value
+            result_text = "Transaction enqueued to Operations Review Dashboard."
+            details = {"review_id": review_id, "queue": "Tier-1 Payment Ops"}
+            exec_record = DBRecoveryExecution(
+                execution_id=execution_id,
+                payment_id=payment.payment_id,
+                action=action,
+                status="ESCALATED",
+                result=result_text,
+                amount_recovered=0.0,
+                details_json=json.dumps(details),
+                executed_at=datetime.utcnow()
+            )
+            db.add(exec_record)
+            db.add(DBAuditEvent(
+                audit_id=f"aud_{uuid.uuid4().hex[:10]}",
+                payment_id=payment.payment_id,
+                event_type="EXECUTION_HUMAN_REVIEW_ESCALATED",
+                actor=actor,
+                metadata_json=json.dumps({"review_id": review_id, "reason": decision_data.get("reason", "")}),
+                timestamp=datetime.utcnow()
+            ))
+            db.commit()
+            return {
+                "execution_id": execution_id,
+                "action": action,
+                "status": "ESCALATED",
+                "result": result_text,
+                "amount_recovered": 0.0,
+                "details": details
+            }
+
+        # Simulated execution of the approved monetary action.
+        # The outcome comes from the seeded ground-truth model
+        # (core/outcome_model.py) — NEVER from thresholding the planner's own
+        # prediction. `prob` is the planner's forecast, recorded for
+        # calibration measurement only.
+        failure_category = decision_data.get("failure_type", FailureCategory.UNKNOWN.value)
+        if payment.ground_truth_recoverable is None:
+            meta = json.loads(payment.metadata_json or "{}")
+            gt_recoverable, gt_prob, outcome_seed = assign_ground_truth(
+                payment.payment_id, failure_category, amount, meta
+            )
+            payment.ground_truth_recoverable = gt_recoverable
+            payment.ground_truth_prob = gt_prob
+            payment.outcome_seed = outcome_seed
+        is_success = simulate_action_outcome(
+            payment.ground_truth_recoverable, payment.outcome_seed, action, failure_category
+        )
         amount_rec = amount if is_success else 0.0
-        
+
         details = {}
         if action == RecoveryAction.RETRY.value:
             payment.retry_count += 1
@@ -208,23 +272,8 @@ class RecoveryExecutor:
                 result_text = f"Recovery Payment Link created ({link_url}) but expired."
                 details = {"payment_link_url": link_url, "settled": False}
 
-        elif action == RecoveryAction.HUMAN_REVIEW.value:
-            review_id = f"rev_{uuid.uuid4().hex[:8]}"
-            review = DBHumanReview(
-                review_id=review_id,
-                payment_id=payment.payment_id,
-                decision_id=decision_data.get("decision_id", "dec_manual"),
-                amount=amount,
-                reason=decision_data.get("reason", "Escalated for human oversight"),
-                risk_level=decision_data.get("risk_level", "HIGH"),
-                status=ReviewStatus.PENDING.value,
-                proposed_action=action,
-                created_at=datetime.utcnow()
-            )
-            db.add(review)
-            payment.status = PaymentStatus.ESCALATED_TO_HUMAN.value
-            result_text = "Transaction enqueued to Operations Review Dashboard."
-            details = {"review_id": review_id, "queue": "Tier-1 Payment Ops"}
+        # Planner forecast recorded alongside the outcome for calibration audits.
+        details["predicted_probability"] = prob
 
         # Record Execution
         exec_record = DBRecoveryExecution(

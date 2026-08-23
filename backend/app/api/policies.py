@@ -8,6 +8,8 @@ from ..models import (
 )
 from ..agents.payment_analyst import PaymentAnalyst
 from ..agents.recovery_planner import RecoveryPlanner
+from ..core.cost_optimizer import CostOptimizer
+from ..core.outcome_model import assign_ground_truth, simulate_action_outcome
 from ..policy.engine import PolicyEngine
 
 router = APIRouter(prefix="/api/policies", tags=["Policies"])
@@ -92,6 +94,7 @@ def simulate_policy_impact(req: PolicySimulationRequest, db: Session = Depends(g
     base_escalations = 0
     sim_escalations = 0
     high_value_at_risk = 0.0
+    added_action_costs = 0.0  # cost of executions newly allowed by the proposed policy
 
     for p in payments:
         cust_ctx = json.loads(p.metadata_json or "{}")
@@ -109,11 +112,20 @@ def simulate_policy_impact(req: PolicySimulationRequest, db: Session = Depends(g
         pay_data["failure_type"] = analysis["failure_type"]
         pay_data["risk_level"] = analysis["risk_level"]
         plan = RecoveryPlanner.plan(analysis, pay_data, cust_ctx)
-        prob = plan["recovery_probability"]
-        is_success = prob >= 0.50
+        action = plan["recommended_action"]
 
-        # Current Policy
-        base_policy = PolicyEngine.evaluate(plan["recommended_action"], pay_data, cust_ctx, current_config)
+        # Outcome from the seeded ground-truth model (core/outcome_model.py),
+        # never from thresholding the planner's own prediction.
+        recoverable = p.ground_truth_recoverable
+        outcome_seed = p.outcome_seed
+        if recoverable is None or outcome_seed is None:
+            recoverable, _gt_prob, outcome_seed = assign_ground_truth(
+                p.payment_id, analysis["failure_type"], p.amount, cust_ctx
+            )
+        is_success = simulate_action_outcome(recoverable, outcome_seed, action, analysis["failure_type"])
+
+        # Current Policy (dry_run: what-if simulation must not mutate shared state)
+        base_policy = PolicyEngine.evaluate(action, pay_data, cust_ctx, current_config, dry_run=True)
         if base_policy.allowed:
             base_auto_count += 1
             if is_success:
@@ -122,20 +134,36 @@ def simulate_policy_impact(req: PolicySimulationRequest, db: Session = Depends(g
             base_escalations += 1
 
         # Proposed Policy
-        sim_policy = PolicyEngine.evaluate(plan["recommended_action"], pay_data, cust_ctx, proposed_cfg_obj)
+        sim_policy = PolicyEngine.evaluate(action, pay_data, cust_ctx, proposed_cfg_obj, dry_run=True)
         if sim_policy.allowed:
             sim_auto_count += 1
             if is_success:
                 sim_recovered += p.amount
             if p.amount > current_config.max_autonomous_amount:
                 high_value_at_risk += p.amount
+            if not base_policy.allowed:
+                added_action_costs += CostOptimizer.get_action_cost(action)
         elif sim_policy.requires_escalation:
             sim_escalations += 1
 
     rev_delta = sim_recovered - base_recovered
     esc_delta = sim_escalations - base_escalations
     risk_pct = round((high_value_at_risk / max(1.0, base_recovered)) * 100, 1)
-    monthly_gain = round(rev_delta * 3.75, 2)  # Scale batch volume to 30-day projection
+
+    # Monthly projection derived from the actual time span of the evaluated data
+    # (linear extrapolation) instead of a magic constant.
+    created_ats = [p.created_at for p in payments if p.created_at is not None]
+    if len(created_ats) >= 2:
+        span_days = max(1.0, (max(created_ats) - min(created_ats)).total_seconds() / 86400.0)
+    else:
+        span_days = 30.0
+    monthly_gain = round(rev_delta * (30.0 / span_days), 2)
+    projection_basis = (
+        f"Linear extrapolation of a {span_days:.1f}-day synthetic data window to 30 days."
+    )
+
+    # ROI of the policy change: revenue delta per rupee of newly-incurred action cost.
+    roi_multiplier = round(rev_delta / added_action_costs, 1) if added_action_costs > 0 else 0.0
 
     explanation = (
         f"Simulating policy adjustments across {len(payments)} transactions: "
@@ -167,6 +195,7 @@ def simulate_policy_impact(req: PolicySimulationRequest, db: Session = Depends(g
         escalations_delta=esc_delta,
         risk_exposure_change_percent=risk_pct,
         projected_monthly_revenue_gain=monthly_gain,
-        estimated_roi_multiplier=14.2,
+        estimated_roi_multiplier=roi_multiplier,
+        projection_basis=projection_basis,
         explanation=explanation
     )
