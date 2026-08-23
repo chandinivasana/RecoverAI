@@ -6,9 +6,10 @@ from fastapi import APIRouter, Depends, HTTPException, Body, Query
 from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import (
-    DBPayment, DBRecoveryDecision, DBPolicyDecision, DBAuditEvent, DBPolicyConfig,
+    DBPayment, DBRecoveryDecision, DBPolicyDecision, DBPolicyConfig,
     PaymentStatus, RecoveryAction
 )
+from ..core.audit import append_audit
 from ..agents.payment_analyst import PaymentAnalyst
 from ..agents.recovery_planner import RecoveryPlanner
 from ..agents.critic import RecoveryCritic
@@ -36,18 +37,11 @@ def _apply_critic_override(db: Session, payment_id: str, plan: Dict[str, Any], c
     plan["recommended_action"] = override
     plan["requires_human"] = override == RecoveryAction.HUMAN_REVIEW.value
     plan["reason"] = f"{plan['reason']} [Critic override applied: {critic.get('notes', '')}]"
-    db.add(DBAuditEvent(
-        audit_id=f"aud_{uuid.uuid4().hex[:10]}",
-        payment_id=payment_id,
-        event_type="CRITIC_OVERRIDE_APPLIED",
-        actor="RecoveryCritic",
-        metadata_json=json.dumps({
-            "original_action": original_action,
-            "override_action": override,
-            "notes": critic.get("notes", "")
-        }),
-        timestamp=datetime.utcnow()
-    ))
+    append_audit(db, payment_id, "CRITIC_OVERRIDE_APPLIED", "RecoveryCritic", {
+        "original_action": original_action,
+        "override_action": override,
+        "notes": critic.get("notes", "")
+    })
     return True
 
 def _get_active_policy_config(db: Session) -> DBPolicyConfig:
@@ -91,14 +85,7 @@ def analyze_payment(payment_id: str, db: Session = Depends(get_db)):
     analysis = PaymentAnalyst.analyze(pay_data, cust_ctx, vulcan_enabled=config.vulcan_enabled)
 
     # Record Audit Event
-    db.add(DBAuditEvent(
-        audit_id=f"aud_{uuid.uuid4().hex[:10]}",
-        payment_id=payment.payment_id,
-        event_type="FAILURE_CLASSIFIED",
-        actor="PaymentAnalyst",
-        metadata_json=json.dumps(analysis),
-        timestamp=datetime.utcnow()
-    ))
+    append_audit(db, payment.payment_id, "FAILURE_CLASSIFIED", "PaymentAnalyst", analysis)
     db.commit()
 
     return analysis
@@ -148,14 +135,11 @@ def plan_recovery(payment_id: str, db: Session = Depends(get_db)):
     db.add(rec_decision)
 
     # Record Audit Event
-    db.add(DBAuditEvent(
-        audit_id=f"aud_{uuid.uuid4().hex[:10]}",
-        payment_id=payment.payment_id,
-        event_type="RECOVERY_PLAN_GENERATED",
-        actor="RecoveryPlanner",
-        metadata_json=json.dumps({"action": plan_result["recommended_action"], "prob": plan_result["recovery_probability"], "reason": plan_result["reason"]}),
-        timestamp=datetime.utcnow()
-    ))
+    append_audit(db, payment.payment_id, "RECOVERY_PLAN_GENERATED", "RecoveryPlanner", {
+        "action": plan_result["recommended_action"],
+        "prob": plan_result["recovery_probability"],
+        "reason": plan_result["reason"]
+    })
     db.commit()
 
     return {
@@ -241,14 +225,11 @@ def process_full_recovery_pipeline(payment_id: str, db: Session = Depends(get_db
     db.add(pol_decision)
 
     # Audit Policy Event
-    db.add(DBAuditEvent(
-        audit_id=f"aud_{uuid.uuid4().hex[:10]}",
-        payment_id=payment.payment_id,
-        event_type="POLICY_EVALUATION",
-        actor="PolicyEngine",
-        metadata_json=json.dumps({"allowed": policy_res.allowed, "rule": policy_res.policy_rule, "reason": policy_res.reason}),
-        timestamp=datetime.utcnow()
-    ))
+    append_audit(db, payment.payment_id, "POLICY_EVALUATION", "PolicyEngine", {
+        "allowed": policy_res.allowed,
+        "rule": policy_res.policy_rule,
+        "reason": policy_res.reason
+    })
     db.commit()
 
     # 6. Recovery Executor

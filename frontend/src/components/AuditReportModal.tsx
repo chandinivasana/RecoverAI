@@ -122,7 +122,7 @@ export const AuditReportModal: React.FC<AuditReportModalProps> = ({ paymentData,
           {/* Section 3: Chronological Audit Trail */}
           <div className="space-y-1.5">
             <h4 className="font-semibold text-[11px] text-[var(--text-main)] uppercase tracking-wider">
-              3. Immutable Cryptographic Audit Log
+              3. Tamper-Evident SHA-256 Audit Chain
             </h4>
             <div className="border border-[var(--border-main)] rounded-md divide-y divide-[var(--border-main)] font-mono text-[10px]">
               {audit.map((a: any, i: number) => (

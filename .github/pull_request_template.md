@@ -11,11 +11,11 @@
 - [ ] **Idempotency Mandatory**: Checked via `event_id` to prevent duplicate recovery executions.
 - [ ] **DPDP Act (2023) Compliance**: Customer communication consent verified before sending SMS/WhatsApp links.
 - [ ] **Acquirer Capacity Protected**: Bank gateway rate-limiters & circuit breakers enforced.
-- [ ] **Immutable Audit Trail**: All decisions and actions recorded in cryptographic log receipts.
+- [ ] **Tamper-Evident Audit Trail**: All decisions and actions recorded via `core/audit.py::append_audit` (SHA-256 hash chain; `GET /api/audit/verify` stays intact).
 
 ---
 
-### 3. Acceptance Criteria Checklist (AC-1 through AC-17)
+### 3. Acceptance Criteria Checklist (AC-1 through AC-18)
 - [ ] AC-1: Payment failure ingestion & persistence
 - [ ] AC-2: Idempotent deduplication of events
 - [ ] AC-3: Diagnostic failure classification
@@ -24,7 +24,7 @@
 - [ ] AC-6: High-value (₹2,50,000+) safe refusal & escalation
 - [ ] AC-7: Human review queue triage (Approve/Reject)
 - [ ] AC-8: Simulated recovery execution & receipts
-- [ ] AC-9: Immutable chronological audit trail
+- [ ] AC-9: Tamper-evident chronological audit trail (hash chain verified)
 - [ ] AC-10: Real database-backed KPI telemetry
 - [ ] AC-11: Held-out benchmark reproducibility (200 txns)
 - [ ] AC-12: Epistemic uncertainty handling & graceful abstention
@@ -33,16 +33,17 @@
 - [ ] AC-15: Acquirer rate limiter & circuit breaker
 - [ ] AC-16: Epistemic uncertainty voluntary abstention
 - [ ] AC-17: Cost optimizer expected net recovery & ROI
+- [ ] AC-18: Headroom context compression for agent payloads
 
 ---
 
 ### 4. Test & Build Verification
 ```bash
-# Backend pytest suite (23/23 passing)
+# Backend pytest suite (full suite must be green)
 cd backend && pytest -v ../tests/
 
 # Frontend Next.js 16 production build
 cd frontend && npm run build
 ```
-- **Automated Tests**: 23/23 passed
-- **Frontend Build**: 0 errors, 0 warnings
+- **Automated Tests**: all passing (paste count from pytest output)
+- **Frontend Build**: 0 errors

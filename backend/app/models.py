@@ -155,6 +155,10 @@ class DBAuditEvent(Base):
     actor = Column(String(64), nullable=False)  # Analyst, Planner, PolicyEngine, Executor, HumanReviewer, System
     metadata_json = Column(Text, default="{}")
     timestamp = Column(DateTime, default=datetime.utcnow)
+    # Tamper-evident SHA-256 hash chain (see core/audit.py). All writes must go
+    # through core.audit.append_audit — never construct rows directly.
+    prev_hash = Column(String(64), nullable=True)
+    entry_hash = Column(String(64), index=True, nullable=True)
 
     payment = relationship("DBPayment", back_populates="audit_events")
 
