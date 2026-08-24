@@ -82,6 +82,7 @@
       - engine.py
       - rules.py
 - **docs/**
+  - DEVELOPER_GUIDE.md
   - PLAN.md
   - PRD.md
   - VALIDATION.md
@@ -97,12 +98,10 @@
   - Dockerfile
   - README.md
   - eslint.config.mjs
-  - next-env.d.ts
   - next.config.ts
   - package-lock.json
   - package.json
   - tsconfig.json
-  - tsconfig.tsbuildinfo
   - **public/**
     - file.svg
     - globe.svg
