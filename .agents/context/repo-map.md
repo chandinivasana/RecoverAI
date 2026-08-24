@@ -53,13 +53,18 @@
     - **api/**
       - analytics.py
       - audit.py
+      - compliance.py
       - evaluation.py
       - payments.py
       - policies.py
+      - preflight.py
       - recovery.py
+      - recovery_links.py
       - redteam.py
       - replay.py
       - reviews.py
+      - studio.py
+      - webhooks.py
     - **core/**
       - anomaly_detector.py
       - audit.py — Tamper-evident audit chain.
@@ -72,12 +77,14 @@
       - llm_reasoner.py — LLM reasoning layer — proposes and explains, NEVER gates.
       - llm_schemas.py — Structured-output contracts for the LLM reasoning layer.
       - outcome_model.py — Seeded generative model of latent payment recoverability.
+      - preflight_optimizer.py — Pre-Flight Checkout Optimization Engine.
       - rate_limiter.py
       - redis_client.py
       - schema_guard.py — Minimal additive schema guard (migrations-lite).
       - seed_data.py
       - utils.py — Small shared helpers used across API routers (single source of truth —
       - vulcan_adapter.py
+      - webhook_parser.py — Live Gateway Webhook Parser & Signature Verifier.
     - **policy/**
       - engine.py
       - rules.py
@@ -98,10 +105,12 @@
   - Dockerfile
   - README.md
   - eslint.config.mjs
+  - next-env.d.ts
   - next.config.ts
   - package-lock.json
   - package.json
   - tsconfig.json
+  - tsconfig.tsbuildinfo
   - **public/**
     - file.svg
     - globe.svg
@@ -147,5 +156,6 @@
   - test_audit_chain.py — Tamper-evident audit chain tests (Phase 3).
   - test_ground_truth.py — Ground-truth benchmark integrity tests.
   - test_llm_reasoner.py — LLM reasoning layer tests (Phase 4). Zero network: the Anthropic client is
+  - test_p1_to_p5_features.py
   - test_pipeline.py
   - test_policy_edges.py — Policy-integrity tests (Phase 2).

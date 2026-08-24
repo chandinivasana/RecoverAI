@@ -204,6 +204,130 @@ class DBPolicyConfig(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+# --- P1: Webhook Ingestion Model ---
+
+class DBWebhookLog(Base):
+    __tablename__ = "webhook_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    webhook_id = Column(String(64), unique=True, index=True, nullable=False)
+    gateway = Column(String(32), nullable=False)  # razorpay, stripe
+    event_type = Column(String(64), nullable=False)
+    event_id = Column(String(64), index=True, nullable=False)
+    payment_id = Column(String(64), index=True, nullable=True)
+    signature_valid = Column(Boolean, default=True)
+    payload_json = Column(Text, default="{}")
+    status = Column(String(32), default="PROCESSED")  # PROCESSED, REJECTED, DUPLICATE, FAILED
+    pipeline_result_json = Column(Text, default="{}")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+# --- P2: Pre-Flight Optimization Model ---
+
+class DBPreflightLog(Base):
+    __tablename__ = "preflight_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    request_id = Column(String(64), unique=True, index=True, nullable=False)
+    merchant_id = Column(String(64), index=True, nullable=True)
+    customer_id = Column(String(64), index=True, nullable=False)
+    amount = Column(Float, nullable=False)
+    payment_method = Column(String(32), nullable=False)
+    bank_code = Column(String(32), nullable=True)
+    recommendation = Column(String(32), nullable=False)  # ALLOW, SMART_ROUTE, REORDER_METHODS, WARN_DEGRADED, BLOCK
+    recommended_method = Column(String(32), nullable=True)
+    success_probability = Column(Float, default=0.9)
+    predicted_latency_ms = Column(Integer, default=450)
+    reasons_json = Column(Text, default="[]")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+# --- P3: Dynamic Recovery Link Model ---
+
+class DBRecoveryLink(Base):
+    __tablename__ = "recovery_links"
+
+    id = Column(Integer, primary_key=True, index=True)
+    link_id = Column(String(64), unique=True, index=True, nullable=False)
+    payment_id = Column(String(64), ForeignKey("payments.payment_id"), index=True, nullable=False)
+    customer_id = Column(String(64), index=True, nullable=False)
+    customer_name = Column(String(128), default="Anonymous")
+    customer_phone = Column(String(32), default="")
+    customer_email = Column(String(128), default="")
+    amount = Column(Float, nullable=False)
+    currency = Column(String(8), default="INR")
+    channel = Column(String(32), default="whatsapp")  # whatsapp, sms, email
+    short_url = Column(String(256), nullable=False)
+    status = Column(String(32), default="ACTIVE")  # ACTIVE, DELIVERED, VIEWED, COMPLETED, EXPIRED
+    discount_amount = Column(Float, default=0.0)
+    failure_reason = Column(Text, default="")
+    suggested_method = Column(String(32), default="upi")
+    alternate_methods_json = Column(Text, default="[]")
+    message_content = Column(Text, default="")
+    dpdp_consent_verified = Column(Boolean, default=True)
+    expires_at = Column(DateTime, nullable=False)
+    completed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    payment = relationship("DBPayment")
+
+
+# --- P4: Policy Studio & Shadow Testing Models ---
+
+class DBStudioPolicyRule(Base):
+    __tablename__ = "studio_policy_rules"
+
+    id = Column(Integer, primary_key=True, index=True)
+    rule_id = Column(String(64), unique=True, index=True, nullable=False)
+    merchant_id = Column(String(64), index=True, nullable=True)
+    name = Column(String(128), nullable=False)
+    description = Column(Text, default="")
+    condition_field = Column(String(64), nullable=False)  # amount, failure_type, risk_score, retry_count, payment_method
+    operator = Column(String(16), nullable=False)  # gt, gte, lt, lte, eq, neq, in
+    value = Column(String(128), nullable=False)
+    action = Column(String(32), nullable=False)  # RETRY, DELAYED_RETRY, PAYMENT_LINK, HUMAN_REVIEW, STOP
+    priority = Column(Integer, default=10)
+    is_active = Column(Boolean, default=True)
+    is_shadow = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class DBShadowTestRun(Base):
+    __tablename__ = "shadow_test_runs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    run_id = Column(String(64), unique=True, index=True, nullable=False)
+    merchant_id = Column(String(64), index=True, nullable=True)
+    total_evaluated = Column(Integer, default=0)
+    decision_match_count = Column(Integer, default=0)
+    decision_divergence_count = Column(Integer, default=0)
+    baseline_recovered_revenue = Column(Float, default=0.0)
+    shadow_recovered_revenue = Column(Float, default=0.0)
+    projected_revenue_delta = Column(Float, default=0.0)
+    baseline_escalations = Column(Integer, default=0)
+    shadow_escalations = Column(Integer, default=0)
+    divergences_json = Column(Text, default="[]")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+# --- P5: DPDP Consent Log Model ---
+
+class DBConsentRecord(Base):
+    __tablename__ = "consent_records"
+
+    id = Column(Integer, primary_key=True, index=True)
+    record_id = Column(String(64), unique=True, index=True, nullable=False)
+    customer_id = Column(String(64), index=True, nullable=False)
+    channel = Column(String(32), default="messaging")
+    granted = Column(Boolean, default=True)
+    purpose = Column(String(128), default="payment_recovery_and_transaction_updates")
+    legal_basis = Column(String(64), default="DPDP_ACT_2023_SECTION_6")
+    ip_address = Column(String(64), default="127.0.0.1")
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    valid_until = Column(DateTime, nullable=True)
+
+
 # --- Pydantic API Schemas ---
 
 class CustomerContext(BaseModel):
@@ -334,3 +458,222 @@ class HumanReviewActionRequest(BaseModel):
     reviewer: str = "Merchant Ops Admin"
     notes: str | None = ""
     override_action: str | None = None  # if null, executes recommended action
+
+
+# --- P1: Webhook Schemas ---
+
+class WebhookSimulateRequest(BaseModel):
+    gateway: str = "razorpay"  # razorpay, stripe
+    event_type: str = "payment.failed"
+    payment_id: str | None = None
+    customer_id: str | None = None
+    customer_name: str | None = "Rahul Verma"
+    customer_email: str | None = "rahul.verma@example.in"
+    customer_phone: str | None = "+919876543210"
+    amount: float = 3499.0
+    currency: str = "INR"
+    payment_method: str = "card"
+    error_code: str = "BAD_REQUEST_AUTHENTICATION_FAILED"
+    error_description: str = "Bank network timeout during 3DS authorization"
+    secret_key: str | None = None
+
+
+class WebhookLogResponse(BaseModel):
+    webhook_id: str
+    gateway: str
+    event_type: str
+    event_id: str
+    payment_id: str | None
+    signature_valid: bool
+    status: str
+    pipeline_result: dict[str, Any] | None = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+# --- P2: Pre-Flight Schemas ---
+
+class PreflightEvaluateRequest(BaseModel):
+    merchant_id: str | None = "merch_enterprise_fashion"
+    customer_id: str = "cust_rahul_9921"
+    customer_name: str | None = "Rahul Verma"
+    amount: float = 4500.0
+    currency: str = "INR"
+    payment_method: str = "upi"  # upi, card, netbanking, wallet, emi
+    bank_code: str | None = "HDFC"  # HDFC, ICICI, SBI, AXIS, etc.
+    upi_app: str | None = "phonepe"  # gpay, phonepe, paytm, cred
+
+
+class MethodReliabilityScore(BaseModel):
+    payment_method: str
+    predicted_success_rate: float
+    latency_ms: int
+    health_status: str  # OPTIMAL, DEGRADED, OUTAGE
+    recommended: bool = False
+
+
+class PreflightEvaluateResponse(BaseModel):
+    request_id: str
+    merchant_id: str
+    recommendation: str  # ALLOW, SMART_ROUTE, REORDER_METHODS, WARN_DEGRADED, BLOCK_PREVENTATIVE
+    primary_method_risk: str  # LOW, MEDIUM, HIGH, CRITICAL
+    success_probability: float
+    predicted_latency_ms: int
+    recommended_method: str
+    suggested_fallback: str | None = None
+    preventative_actions: list[str]
+    method_rankings: list[MethodReliabilityScore]
+    circuit_breaker_active: bool = False
+    reasons: list[str]
+    timestamp: datetime
+
+
+# --- P3: Recovery Links Schemas ---
+
+class RecoveryLinkCreateRequest(BaseModel):
+    payment_id: str
+    channel: str = "whatsapp"  # whatsapp, sms, email
+    custom_expiry_minutes: int = 120
+    discount_amount: float = 0.0
+    custom_message: str | None = None
+
+
+class RecoveryLinkResponse(BaseModel):
+    link_id: str
+    payment_id: str
+    customer_id: str
+    customer_name: str
+    customer_phone: str
+    customer_email: str
+    amount: float
+    currency: str
+    channel: str
+    short_url: str
+    status: str
+    discount_amount: float
+    failure_reason: str
+    suggested_method: str
+    alternate_methods: list[str]
+    message_content: str
+    dpdp_consent_verified: bool
+    expires_at: datetime
+    completed_at: datetime | None = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class RecoveryLinkCompleteRequest(BaseModel):
+    payment_method: str = "upi"
+    upi_id: str | None = "customer@okhdfcbank"
+    card_network: str | None = None
+    notes: str | None = "Customer completed via interactive recovery link"
+
+
+class RecoveryLinkCompleteResponse(BaseModel):
+    link_id: str
+    payment_id: str
+    status: str
+    amount_recovered: float
+    recovery_method: str
+    execution_id: str
+    audit_hash: str
+    message: str
+
+
+# --- P4: Policy Studio & Shadow Testing Schemas ---
+
+class StudioPolicyRuleCreateRequest(BaseModel):
+    merchant_id: str | None = None
+    name: str
+    description: str = ""
+    condition_field: str  # amount, failure_type, risk_score, retry_count, payment_method
+    operator: str  # gt, gte, lt, lte, eq, neq, in
+    value: str
+    action: str  # RETRY, DELAYED_RETRY, PAYMENT_LINK, HUMAN_REVIEW, STOP
+    priority: int = 10
+    is_active: bool = True
+    is_shadow: bool = False
+
+
+class StudioPolicyRuleResponse(BaseModel):
+    rule_id: str
+    merchant_id: str | None
+    name: str
+    description: str
+    condition_field: str
+    operator: str
+    value: str
+    action: str
+    priority: int
+    is_active: bool
+    is_shadow: bool
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ShadowTestRunRequest(BaseModel):
+    merchant_id: str | None = None
+    sample_size: int = 100
+    dataset_split: str = "dev"  # dev, eval
+
+
+class ShadowTestRunResponse(BaseModel):
+    run_id: str
+    merchant_id: str | None
+    total_evaluated: int
+    decision_match_count: int
+    decision_divergence_count: int
+    match_rate_percent: float
+    baseline_recovered_revenue: float
+    shadow_recovered_revenue: float
+    projected_revenue_delta: float
+    baseline_escalations: int
+    shadow_escalations: int
+    safety_score: float
+    divergences_sample: list[dict[str, Any]]
+    recommendation: str
+    created_at: datetime
+
+
+# --- P5: Compliance Schemas ---
+
+class ComplianceExportRequest(BaseModel):
+    merchant_id: str | None = None
+    organization_name: str = "RecoverAI Merchant Network"
+    certifier_name: str = "Chief Compliance & Security Officer"
+    include_audit_trail: bool = True
+    include_dpdp_records: bool = True
+
+
+class ComplianceExportResponse(BaseModel):
+    certificate_id: str
+    issued_to: str
+    issued_by: str
+    issued_at: datetime
+    standard: str  # DPDP Act 2023 & RBI Guidelines
+    tamper_evident_audit_seal: dict[str, Any]
+    dpdp_compliance_summary: dict[str, Any]
+    rbi_compliance_summary: dict[str, Any]
+    digital_signature: str
+    public_key_fingerprint: str
+    verification_hash: str
+    download_url: str | None = None
+
+
+class ComplianceVerifyRequest(BaseModel):
+    certificate_id: str
+    verification_hash: str
+    digital_signature: str
+
+
+class ComplianceVerifyResponse(BaseModel):
+    valid: bool
+    certificate_id: str
+    signed_by: str
+    status: str
+    verification_details: str
+    tamper_check: str

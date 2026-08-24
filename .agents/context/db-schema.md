@@ -4,6 +4,21 @@
 
 From SQLAlchemy metadata (`app.models`).
 
+## `consent_records`
+
+| Column | Type | Nullable | Indexed |
+|---|---|:---:|:---:|
+| `id` | INTEGER |  | ✓ |
+| `record_id` | VARCHAR(64) |  | ✓ |
+| `customer_id` | VARCHAR(64) |  | ✓ |
+| `channel` | VARCHAR(32) | ✓ |  |
+| `granted` | BOOLEAN | ✓ |  |
+| `purpose` | VARCHAR(128) | ✓ |  |
+| `legal_basis` | VARCHAR(64) | ✓ |  |
+| `ip_address` | VARCHAR(64) | ✓ |  |
+| `timestamp` | DATETIME | ✓ |  |
+| `valid_until` | DATETIME | ✓ |  |
+
 ## `payments`
 
 | Column | Type | Nullable | Indexed |
@@ -46,6 +61,77 @@ From SQLAlchemy metadata (`app.models`).
 | `escalate_unknown_failure` | BOOLEAN | ✓ |  |
 | `vulcan_enabled` | BOOLEAN | ✓ |  |
 | `updated_at` | DATETIME | ✓ |  |
+
+## `preflight_logs`
+
+| Column | Type | Nullable | Indexed |
+|---|---|:---:|:---:|
+| `id` | INTEGER |  | ✓ |
+| `request_id` | VARCHAR(64) |  | ✓ |
+| `merchant_id` | VARCHAR(64) | ✓ | ✓ |
+| `customer_id` | VARCHAR(64) |  | ✓ |
+| `amount` | FLOAT |  |  |
+| `payment_method` | VARCHAR(32) |  |  |
+| `bank_code` | VARCHAR(32) | ✓ |  |
+| `recommendation` | VARCHAR(32) |  |  |
+| `recommended_method` | VARCHAR(32) | ✓ |  |
+| `success_probability` | FLOAT | ✓ |  |
+| `predicted_latency_ms` | INTEGER | ✓ |  |
+| `reasons_json` | TEXT | ✓ |  |
+| `created_at` | DATETIME | ✓ |  |
+
+## `shadow_test_runs`
+
+| Column | Type | Nullable | Indexed |
+|---|---|:---:|:---:|
+| `id` | INTEGER |  | ✓ |
+| `run_id` | VARCHAR(64) |  | ✓ |
+| `merchant_id` | VARCHAR(64) | ✓ | ✓ |
+| `total_evaluated` | INTEGER | ✓ |  |
+| `decision_match_count` | INTEGER | ✓ |  |
+| `decision_divergence_count` | INTEGER | ✓ |  |
+| `baseline_recovered_revenue` | FLOAT | ✓ |  |
+| `shadow_recovered_revenue` | FLOAT | ✓ |  |
+| `projected_revenue_delta` | FLOAT | ✓ |  |
+| `baseline_escalations` | INTEGER | ✓ |  |
+| `shadow_escalations` | INTEGER | ✓ |  |
+| `divergences_json` | TEXT | ✓ |  |
+| `created_at` | DATETIME | ✓ |  |
+
+## `studio_policy_rules`
+
+| Column | Type | Nullable | Indexed |
+|---|---|:---:|:---:|
+| `id` | INTEGER |  | ✓ |
+| `rule_id` | VARCHAR(64) |  | ✓ |
+| `merchant_id` | VARCHAR(64) | ✓ | ✓ |
+| `name` | VARCHAR(128) |  |  |
+| `description` | TEXT | ✓ |  |
+| `condition_field` | VARCHAR(64) |  |  |
+| `operator` | VARCHAR(16) |  |  |
+| `value` | VARCHAR(128) |  |  |
+| `action` | VARCHAR(32) |  |  |
+| `priority` | INTEGER | ✓ |  |
+| `is_active` | BOOLEAN | ✓ |  |
+| `is_shadow` | BOOLEAN | ✓ |  |
+| `created_at` | DATETIME | ✓ |  |
+| `updated_at` | DATETIME | ✓ |  |
+
+## `webhook_logs`
+
+| Column | Type | Nullable | Indexed |
+|---|---|:---:|:---:|
+| `id` | INTEGER |  | ✓ |
+| `webhook_id` | VARCHAR(64) |  | ✓ |
+| `gateway` | VARCHAR(32) |  |  |
+| `event_type` | VARCHAR(64) |  |  |
+| `event_id` | VARCHAR(64) |  | ✓ |
+| `payment_id` | VARCHAR(64) | ✓ | ✓ |
+| `signature_valid` | BOOLEAN | ✓ |  |
+| `payload_json` | TEXT | ✓ |  |
+| `status` | VARCHAR(32) | ✓ |  |
+| `pipeline_result_json` | TEXT | ✓ |  |
+| `created_at` | DATETIME | ✓ |  |
 
 ## `audit_events`
 
@@ -125,6 +211,32 @@ From SQLAlchemy metadata (`app.models`).
 | `amount_recovered` | FLOAT | ✓ |  |
 | `details_json` | TEXT | ✓ |  |
 | `executed_at` | DATETIME | ✓ |  |
+
+## `recovery_links`
+
+| Column | Type | Nullable | Indexed |
+|---|---|:---:|:---:|
+| `id` | INTEGER |  | ✓ |
+| `link_id` | VARCHAR(64) |  | ✓ |
+| `payment_id` | VARCHAR(64) |  | ✓ |
+| `customer_id` | VARCHAR(64) |  | ✓ |
+| `customer_name` | VARCHAR(128) | ✓ |  |
+| `customer_phone` | VARCHAR(32) | ✓ |  |
+| `customer_email` | VARCHAR(128) | ✓ |  |
+| `amount` | FLOAT |  |  |
+| `currency` | VARCHAR(8) | ✓ |  |
+| `channel` | VARCHAR(32) | ✓ |  |
+| `short_url` | VARCHAR(256) |  |  |
+| `status` | VARCHAR(32) | ✓ |  |
+| `discount_amount` | FLOAT | ✓ |  |
+| `failure_reason` | TEXT | ✓ |  |
+| `suggested_method` | VARCHAR(32) | ✓ |  |
+| `alternate_methods_json` | TEXT | ✓ |  |
+| `message_content` | TEXT | ✓ |  |
+| `dpdp_consent_verified` | BOOLEAN | ✓ |  |
+| `expires_at` | DATETIME |  |  |
+| `completed_at` | DATETIME | ✓ |  |
+| `created_at` | DATETIME | ✓ |  |
 
 ## `policy_decisions`
 

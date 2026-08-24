@@ -2,7 +2,7 @@
 
 # API Surface
 
-Introspected from the live FastAPI app (`app.main:app`). 29 routes.
+Introspected from the live FastAPI app (`app.main:app`). 46 routes.
 
 | Method | Path | Handler | Summary |
 |---|---|---|---|
@@ -15,6 +15,8 @@ Introspected from the live FastAPI app (`app.main:app`). 29 routes.
 | GET | `/api/analytics/strategies` | `get_strategy_analytics` | Section 23 Recovery Strategy Analytics table (merchant-filterable): |
 | GET | `/api/analytics/timeseries` | `get_timeseries` | Revenue at risk vs. recovered over the last 14 days (merchant-filterable). |
 | GET | `/api/audit/verify` | `verify_audit_chain` | Walks the tamper-evident SHA-256 audit hash chain end-to-end, recomputing |
+| POST | `/api/compliance/export` | `export_compliance_certificate` | Generates a cryptographically signed compliance export certified against |
+| POST | `/api/compliance/verify` | `verify_compliance_certificate` | Public verification endpoint: validates whether a compliance certificate |
 | GET | `/api/evaluation/results` | `get_evaluation_results` | Returns latest evaluation results on the held-out evaluation split. |
 | POST | `/api/evaluation/run` | `run_evaluation_benchmark` | Runs an offline evaluation benchmark across the held-out dataset (200 records). |
 | GET | `/api/payments` | `list_payments` | List payments with dynamic filters (multi-tenant via merchant_id). |
@@ -23,6 +25,13 @@ Introspected from the live FastAPI app (`app.main:app`). 29 routes.
 | GET | `/api/policies` | `get_policies` |  |
 | PUT | `/api/policies` | `update_policies` |  |
 | POST | `/api/policies/simulate` | `simulate_policy_impact` | Simulates what would happen if merchant policy changed (e.g. limit raised from ₹25k to ₹50k). |
+| GET | `/api/preflight/acquirers` | `get_acquirer_network_health` | Returns real-time health matrix across major Indian acquirers and payment rails. |
+| POST | `/api/preflight/evaluate` | `evaluate_checkout_preflight` | Evaluates checkout parameters before payment execution to prevent failure. |
+| GET | `/api/preflight/stats` | `get_preflight_prevention_stats` | Summary of preventative optimizations performed. |
+| GET | `/api/recovery-links` | `list_recovery_links` | List recent dynamic recovery links. |
+| POST | `/api/recovery-links/create` | `create_recovery_link` | Creates an interactive dynamic recovery link (WhatsApp/SMS/Email) for a failed payment. |
+| GET | `/api/recovery-links/{link_id}` | `get_recovery_link` | Fetches details of a dynamic recovery link. |
+| POST | `/api/recovery-links/{link_id}/complete` | `complete_recovery_link_payment` | Executes 1-click recovery when the customer pays through the dynamic recovery link. |
 | POST | `/api/recovery/batch-process` | `batch_process_recoveries` | Batch process up to N pending failed payments through the full agentic pipeline. |
 | POST | `/api/recovery/{payment_id}/analyze` | `analyze_payment` | Step 1: Payment Analyst analyzes failure reasons and gathers intelligence. |
 | POST | `/api/recovery/{payment_id}/plan` | `plan_recovery` | Step 2: Recovery Planner recommends a bounded action & calculates expected recovery. |
@@ -34,4 +43,12 @@ Introspected from the live FastAPI app (`app.main:app`). 29 routes.
 | POST | `/api/reviews/{review_id}/approve` | `approve_review` | Human Administrator approves the payment recovery action. |
 | POST | `/api/reviews/{review_id}/explain` | `explain_refusal` | Explainable refusal Q&A (PRD §18): the reviewer asks in plain language why |
 | POST | `/api/reviews/{review_id}/reject` | `reject_review` | Human Administrator rejects the recovery action (Safe Stop). |
+| GET | `/api/studio/rules` | `list_studio_rules` | List merchant custom policy rules and shadow rules. |
+| POST | `/api/studio/rules` | `create_studio_rule` | Create a new custom policy rule (live or shadow mode). |
+| DELETE | `/api/studio/rules/{rule_id}` | `delete_studio_rule` | Deletes or deactivates a custom studio rule. |
+| POST | `/api/studio/shadow-test/run` | `run_shadow_test` | Executes a counterfactual Shadow Test on historical payments. |
+| GET | `/api/webhooks/history` | `get_webhook_history` | Retrieve recent webhook logs and their execution outcomes. |
+| POST | `/api/webhooks/razorpay` | `ingest_razorpay_webhook` | Ingest live Razorpay webhooks (e.g. payment.failed, order.paid). |
+| POST | `/api/webhooks/simulate` | `simulate_gateway_webhook` | Simulator endpoint: construct a synthetic Razorpay or Stripe webhook payload, |
+| POST | `/api/webhooks/stripe` | `ingest_stripe_webhook` | Ingest live Stripe webhooks (e.g. payment_intent.payment_failed, charge.failed). |
 | GET | `/health` | `health_check` |  |

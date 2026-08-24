@@ -4,7 +4,22 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .api import analytics, audit, evaluation, payments, policies, recovery, redteam, replay, reviews
+from .api import (
+    analytics,
+    audit,
+    compliance,
+    evaluation,
+    payments,
+    policies,
+    preflight,
+    recovery,
+    recovery_links,
+    redteam,
+    replay,
+    reviews,
+    studio,
+    webhooks,
+)
 from .core.demo_warmup import warm_start_demo
 from .core.schema_guard import ensure_columns
 from .core.seed_data import seed_database
@@ -65,6 +80,11 @@ app.include_router(analytics.router)
 app.include_router(replay.router)
 app.include_router(redteam.router)
 app.include_router(audit.router)
+app.include_router(webhooks.router)
+app.include_router(preflight.router)
+app.include_router(recovery_links.router)
+app.include_router(studio.router)
+app.include_router(compliance.router)
 
 @app.get("/")
 def root():
